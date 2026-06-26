@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# 가상환경
+venv/
+
+# 모델 바이너리 (용량 초과 — 아래 README 설명 참고)
+models/yolov8n.onnx
+models/yolov8n-face.onnx
+models/sixdrepnet.onnx.data
+models/res10_300x300_ssd_iter_140000.caffemodel
+*.pt
+*.caffemodel
+
+# 런타임 데이터
+data_log.jsonl
+
+# 임시 파일
+*.tmp
+*.log
