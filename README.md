@@ -156,15 +156,3 @@ adscope/
 - `data_log.jsonl`에는 집계된 수치 데이터만 기록됩니다
 - 모든 추론은 로컬 디바이스에서 실행됩니다
 
----
-
-## 개발 로드맵
-
-| Phase | 상태 | 내용 |
-|---|---|---|
-| A | 완료 | YOLOv8n 전신 bbox 트래킹 |
-| B | 예정 | OSNet ReID — 외형 기반 동일인 재인식 |
-| C | 예정 | Kalman Filter 위치 예측 |
-| 백엔드 | 예정 | FastAPI + PostgreSQL/TimescaleDB |
-| 대시보드 | 예정 | Next.js + WebSocket 실시간 화면 |
-| 엣지 배포 | 예정 | RTSP IP카메라, Jetson Nano 지원 |
