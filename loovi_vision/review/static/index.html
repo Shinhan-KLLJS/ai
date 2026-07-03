@@ -1,0 +1,888 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Loovi Review</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --line: #d9dee7;
+      --text: #18202d;
+      --muted: #647084;
+      --blue: #2563eb;
+      --green: #059669;
+      --orange: #d97706;
+      --red: #dc2626;
+      --violet: #7c3aed;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.4 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    header {
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+    }
+    header h1 {
+      font-size: 17px;
+      margin: 0;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    button, select {
+      height: 32px;
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--text);
+      border-radius: 6px;
+      padding: 0 10px;
+      font: inherit;
+    }
+    button {
+      cursor: pointer;
+      background: #f9fafb;
+    }
+    main {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: calc(100vh - 52px);
+    }
+    main.sidebar-collapsed {
+      grid-template-columns: 0 minmax(0, 1fr);
+    }
+    aside {
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      padding: 12px;
+      overflow: auto;
+      transition: padding 140ms ease, border-color 140ms ease;
+    }
+    main.sidebar-collapsed aside {
+      border-right-color: transparent;
+      padding: 0;
+      overflow: hidden;
+    }
+    .session {
+      width: 100%;
+      height: auto;
+      min-height: 58px;
+      text-align: left;
+      margin-bottom: 8px;
+      display: block;
+    }
+    .session.active {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.12);
+    }
+    .session strong {
+      display: block;
+      font-size: 13px;
+      word-break: break-all;
+    }
+    .session span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    .content {
+      padding: 14px;
+      display: grid;
+      grid-template-rows: auto auto minmax(220px, 1fr);
+      gap: 12px;
+      min-width: 0;
+    }
+    .top {
+      display: grid;
+      grid-template-columns: minmax(360px, 1.3fr) minmax(260px, 0.7fr);
+      gap: 12px;
+      min-width: 0;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .panel h2 {
+      margin: 0;
+      padding: 10px 12px;
+      font-size: 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    video, .frame-view {
+      display: block;
+      width: 100%;
+      max-height: 48vh;
+      background: #111827;
+    }
+    .frame-view {
+      object-fit: contain;
+    }
+    .hidden {
+      display: none !important;
+    }
+    .fallback-controls {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) 62px;
+      gap: 8px;
+      align-items: center;
+      padding: 8px 10px;
+      border-top: 1px solid var(--line);
+      background: #f8fafc;
+    }
+    input[type="range"] {
+      width: 100%;
+    }
+    .cards {
+      padding: 12px;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .metric {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      min-height: 66px;
+      background: #fbfcfe;
+    }
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4px;
+    }
+    .metric strong {
+      font-size: 22px;
+      letter-spacing: 0;
+    }
+    .dist-wrap {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+      gap: 16px;
+      padding: 0 12px 14px;
+    }
+    .dist-block h3 {
+      font-size: 13px;
+      margin: 4px 0 10px;
+      color: var(--muted);
+      font-weight: 600;
+    }
+    .dist {
+      display: grid;
+      gap: 8px;
+    }
+    .bar-row {
+      display: grid;
+      grid-template-columns: 70px minmax(0, 1fr) 44px;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+    }
+    .bar-track {
+      display: block;
+      background: #eef1f6;
+      border-radius: 4px;
+      height: 16px;
+      width: 100%;
+      overflow: hidden;
+    }
+    .bar-fill {
+      display: block;
+      height: 100%;
+      background: var(--blue);
+      border-radius: 4px;
+      min-width: 2px;
+    }
+    .bar-fill.female { background: var(--violet); }
+    .bar-value { text-align: right; color: var(--muted); }
+    @media (max-width: 700px) {
+      .dist-wrap { grid-template-columns: 1fr; }
+    }
+    .chart-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+    .chart-head h2 {
+      padding: 0;
+      border: 0;
+    }
+    #chart {
+      width: 100%;
+      height: 260px;
+      display: block;
+      cursor: crosshair;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 12px;
+    }
+    th, td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      white-space: nowrap;
+    }
+    th {
+      position: sticky;
+      top: 0;
+      background: #f8fafc;
+      z-index: 1;
+    }
+    tr.active {
+      background: rgba(37, 99, 235, 0.10);
+    }
+    .table-wrap {
+      max-height: 38vh;
+      overflow: auto;
+    }
+    .empty {
+      padding: 18px;
+      color: var(--muted);
+    }
+    @media (max-width: 900px) {
+      main { grid-template-columns: 1fr; }
+      main.sidebar-collapsed { grid-template-columns: 1fr; }
+      aside { border-right: 0; border-bottom: 1px solid var(--line); max-height: 220px; }
+      main.sidebar-collapsed aside { max-height: 0; border-bottom-color: transparent; }
+      .top { grid-template-columns: 1fr; }
+      .content { padding: 10px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Loovi Review</h1>
+    <div class="header-actions">
+      <button id="toggleSidebar" aria-expanded="true">Hide sessions</button>
+      <button id="refresh">Refresh</button>
+    </div>
+  </header>
+  <main id="layout">
+    <aside>
+      <div id="sessions" class="empty">Loading sessions...</div>
+    </aside>
+    <section class="content">
+      <div class="top">
+        <section class="panel">
+          <h2>Video</h2>
+          <video id="video" controls></video>
+          <img id="frameView" class="frame-view hidden" alt="Video frame fallback">
+          <div id="fallbackControls" class="fallback-controls hidden">
+            <button id="fallbackPlay">Play</button>
+            <input id="fallbackSeek" type="range" min="0" max="1" step="0.05" value="0">
+            <span id="fallbackTime">0.0s</span>
+          </div>
+        </section>
+        <section class="panel">
+          <h2>Current Window</h2>
+          <div id="metrics" class="cards"></div>
+        </section>
+      </div>
+      <section class="panel hidden" id="attentionPanel">
+        <h2>Attention Summary</h2>
+        <div class="cards" id="attentionCards"></div>
+        <div class="dist-wrap">
+          <div class="dist-block">
+            <h3>주목자 성별 분포</h3>
+            <div id="genderDist" class="dist"></div>
+          </div>
+          <div class="dist-block">
+            <h3>주목자 연령 분포</h3>
+            <div id="ageDist" class="dist"></div>
+          </div>
+        </div>
+      </section>
+      <section class="panel hidden" id="gazePanel">
+        <h2>Gaze Summary (head pose)</h2>
+        <div class="cards" id="gazeCards"></div>
+        <div class="dist-wrap">
+          <div class="dist-block">
+            <h3>응시 등급 분포</h3>
+            <div id="gradeDist" class="dist"></div>
+          </div>
+          <div class="dist-block">
+            <h3>성능 / 전송</h3>
+            <div id="perfList" class="dist"></div>
+          </div>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="chart-head">
+          <h2>Trend</h2>
+          <select id="metric">
+            <option value="active_tracks">active_tracks</option>
+            <option value="unique_total">unique_total</option>
+            <option value="avg_persons_per_frame">avg_persons_per_frame</option>
+            <option value="peak_persons">peak_persons</option>
+            <option value="avg_confidence">avg_confidence</option>
+            <option value="face_visible_ratio">face_visible_ratio</option>
+            <option value="persons_with_face">persons_with_face</option>
+            <option value="concurrent_gazers">concurrent_gazers</option>
+            <option value="lts">lts</option>
+          </select>
+        </div>
+        <canvas id="chart"></canvas>
+      </section>
+      <section class="panel">
+        <h2>JSONL Rows</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Active</th>
+                <th>Unique</th>
+                <th>Avg/frame</th>
+                <th>Peak</th>
+                <th>Avg conf</th>
+                <th>Face%</th>
+                <th>Gazers</th>
+                <th>Frames</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+  </main>
+  <script>
+    const state = {
+      sessions: [],
+      runId: null,
+      rows: [],
+      manifest: {},
+      currentIndex: -1,
+      fallback: false,
+      fallbackPlaying: false,
+      fallbackTime: 0,
+      fallbackTimer: null,
+      lastTick: 0,
+      timing: {}
+    };
+    const els = {
+      layout: document.getElementById("layout"),
+      sessions: document.getElementById("sessions"),
+      toggleSidebar: document.getElementById("toggleSidebar"),
+      refresh: document.getElementById("refresh"),
+      video: document.getElementById("video"),
+      frameView: document.getElementById("frameView"),
+      fallbackControls: document.getElementById("fallbackControls"),
+      fallbackPlay: document.getElementById("fallbackPlay"),
+      fallbackSeek: document.getElementById("fallbackSeek"),
+      fallbackTime: document.getElementById("fallbackTime"),
+      metrics: document.getElementById("metrics"),
+      metric: document.getElementById("metric"),
+      chart: document.getElementById("chart"),
+      rows: document.getElementById("rows"),
+      attentionPanel: document.getElementById("attentionPanel"),
+      attentionCards: document.getElementById("attentionCards"),
+      genderDist: document.getElementById("genderDist"),
+      ageDist: document.getElementById("ageDist"),
+      gazePanel: document.getElementById("gazePanel"),
+      gazeCards: document.getElementById("gazeCards"),
+      gradeDist: document.getElementById("gradeDist"),
+      perfList: document.getElementById("perfList")
+    };
+    const colors = ["#2563eb", "#059669", "#d97706", "#dc2626", "#7c3aed"];
+
+    function fmt(value) {
+      if (value === null || value === undefined || Number.isNaN(value)) return "-";
+      if (typeof value === "number") return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+      return String(value);
+    }
+
+    function setSidebarCollapsed(collapsed) {
+      els.layout.classList.toggle("sidebar-collapsed", collapsed);
+      els.toggleSidebar.textContent = collapsed ? "Show sessions" : "Hide sessions";
+      els.toggleSidebar.setAttribute("aria-expanded", String(!collapsed));
+      window.localStorage.setItem("loovi.sidebarCollapsed", collapsed ? "1" : "0");
+      window.requestAnimationFrame(drawChart);
+    }
+
+    async function loadSessions() {
+      const res = await fetch("/api/sessions");
+      const data = await res.json();
+      state.sessions = data.sessions || [];
+      renderSessions();
+      if (!state.runId && state.sessions.length) {
+        await loadSession(state.sessions[0].run_id);
+      }
+    }
+
+    function renderSessions() {
+      if (!state.sessions.length) {
+        els.sessions.className = "empty";
+        els.sessions.textContent = "No sessions found.";
+        return;
+      }
+      els.sessions.className = "";
+      els.sessions.innerHTML = "";
+      state.sessions.forEach(session => {
+        const btn = document.createElement("button");
+        btn.className = "session" + (session.run_id === state.runId ? " active" : "");
+        btn.innerHTML = `<strong>${session.run_id}</strong><span>${session.started_at || ""} · video ${session.video_exists ? "ok" : "missing"}</span>`;
+        btn.addEventListener("click", () => loadSession(session.run_id));
+        els.sessions.appendChild(btn);
+      });
+    }
+
+    async function loadSession(runId) {
+      state.runId = runId;
+      state.currentIndex = -1;
+      disableFallback();
+      renderSessions();
+      const res = await fetch(`/api/session/${encodeURIComponent(runId)}`);
+      const data = await res.json();
+      state.rows = data.rows || [];
+      state.manifest = data.manifest || {};
+      state.timing = data.timing || {};
+      els.video.src = data.video_url || "";
+      els.video.load();
+      const maxTime = timelineMax();
+      els.fallbackSeek.max = String(maxTime);
+      renderSummary(state.manifest);
+      renderGazeSummary(state.manifest);
+      renderRows();
+      updateCurrent(0);
+      drawChart();
+    }
+
+    function pct(value) {
+      return `${(Number(value || 0) * 100).toFixed(1)}%`;
+    }
+
+    function distRows(entries, total, klass) {
+      const max = Math.max(...entries.map(([, v]) => v), 1);
+      return entries.map(([label, value]) => {
+        const width = `${(value / max) * 100}%`;
+        const share = total ? ` (${((value / total) * 100).toFixed(0)}%)` : "";
+        return `<div class="bar-row"><span>${label}</span>`
+          + `<span class="bar-track"><span class="bar-fill ${klass}" style="width:${width}"></span></span>`
+          + `<span class="bar-value">${value}${share}</span></div>`;
+      }).join("");
+    }
+
+    function renderSummary(manifest) {
+      // total_unique가 있을 때만 (face.enable=true 세션) 주목도 요약을 보여준다.
+      if (!manifest || manifest.total_unique === undefined) {
+        els.attentionPanel.classList.add("hidden");
+        return;
+      }
+      els.attentionPanel.classList.remove("hidden");
+      const cards = [
+        ["통행 인원", manifest.total_unique],
+        ["주목 인원", manifest.attended_count],
+        ["주목률", pct(manifest.attention_rate)]
+      ];
+      els.attentionCards.innerHTML = cards
+        .map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${fmt(value)}</strong></div>`)
+        .join("");
+
+      const gender = manifest.gender_dist || { male: 0, female: 0 };
+      const genderTotal = (gender.male || 0) + (gender.female || 0);
+      els.genderDist.innerHTML = distRows(
+        [["남성", gender.male || 0], ["여성", gender.female || 0]], genderTotal, "")
+        || `<div class="empty">데이터 없음</div>`;
+      const genderRows = els.genderDist.querySelectorAll(".bar-fill");
+      if (genderRows[1]) genderRows[1].classList.add("female");
+
+      const age = manifest.age_dist || {};
+      const labels = {
+        under_10: "10대 미만", "10s": "10대", "20s": "20대", "30s": "30대",
+        "40s": "40대", "50s": "50대", "60_plus": "60대 이상"
+      };
+      const ageEntries = Object.keys(labels).map(k => [labels[k], age[k] || 0]);
+      const ageTotal = ageEntries.reduce((sum, [, v]) => sum + v, 0);
+      els.ageDist.innerHTML = ageTotal
+        ? distRows(ageEntries, ageTotal, "")
+        : `<div class="empty">데이터 없음</div>`;
+    }
+
+    function renderGazeSummary(manifest) {
+      // gaze_total_sessions가 있을 때만 (gaze.enable=true 세션) 응시 요약을 보여준다.
+      if (!manifest || manifest.gaze_total_sessions === undefined) {
+        els.gazePanel.classList.add("hidden");
+        return;
+      }
+      els.gazePanel.classList.remove("hidden");
+      const lts = manifest.lts;
+      const ots = manifest.ots;
+      const ltsRate = (ots ? `${((lts / ots) * 100).toFixed(0)}%` : "-");
+      const cards = [
+        ["OTS (통행)", ots],
+        [`LTS (응시 ${manifest.lts_min_sec ?? 1}s+)`, lts],
+        ["LTS율", ltsRate],
+        ["Attention (2초+)", manifest.attention_count],
+        ["평균 시청(LTS 인원, 초)", manifest.avg_dwell_sec]
+      ];
+      els.gazeCards.innerHTML = cards
+        .map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${fmt(value)}</strong></div>`)
+        .join("");
+
+      // 시청시간 분포는 LTS 인원 기준(1인 1대표값): 1~2초 / 2초 이상 (LTS >=1초라 under_1s 제외).
+      const dist = manifest.dwell_distribution || {};
+      const gEntries = [["1~2초", dist["1_to_2s"] || 0], ["2초+", dist.over_2s || 0]];
+      const gTotal = gEntries.reduce((sum, [, v]) => sum + v, 0);
+      els.gradeDist.innerHTML = gTotal
+        ? distRows(gEntries, gTotal, "")
+        : `<div class="empty">데이터 없음</div>`;
+
+      const perf = manifest.performance || {};
+      const perfKeys = [
+        ["avg_fps", "avg fps"], ["min_fps", "min fps"], ["headpose_avg_ms", "pose ms"],
+        ["snapshots_sent", "전송"], ["send_failures", "전송실패"],
+        ["snapshots_spilled", "스필"], ["buffer_max_depth", "버퍼최대"],
+        ["last_send_latency_ms", "전송지연ms"]
+      ];
+      const rows = perfKeys
+        .filter(([k]) => perf[k] !== undefined)
+        .map(([k, label]) => `<div class="bar-row"><span>${label}</span>`
+          + `<span class="bar-value" style="text-align:left">${fmt(perf[k])}</span></div>`);
+      els.perfList.innerHTML = rows.length ? rows.join("") : `<div class="empty">데이터 없음</div>`;
+    }
+
+    function timelineMax() {
+      return Math.max(...state.rows.map(row => rowEnd(row)), Number(state.timing.timeline_duration_sec || 0), 1);
+    }
+
+    function rowStart(row) {
+      return Number(row?.review_start_sec ?? row?.elapsed_start_sec ?? 0);
+    }
+
+    function rowEnd(row) {
+      return Number(row?.review_end_sec ?? row?.elapsed_end_sec ?? rowStart(row));
+    }
+
+    function nativeToReview(sec) {
+      const videoDuration = Number(state.timing.video_duration_sec || 0);
+      const timelineDuration = timelineMax();
+      if (videoDuration > 0 && timelineDuration > 0) {
+        return sec * (timelineDuration / videoDuration);
+      }
+      return sec;
+    }
+
+    function reviewToNative(sec) {
+      const videoDuration = Number(state.timing.video_duration_sec || 0);
+      const timelineDuration = timelineMax();
+      if (videoDuration > 0 && timelineDuration > 0) {
+        return sec * (videoDuration / timelineDuration);
+      }
+      return sec;
+    }
+
+    function playbackTime() {
+      return state.fallback ? state.fallbackTime : nativeToReview(Number(els.video.currentTime || 0));
+    }
+
+    function setPlaybackTime(sec) {
+      const value = Math.max(0, Math.min(sec, timelineMax()));
+      if (state.fallback) {
+        state.fallbackTime = value;
+        renderFallbackFrame();
+        updateCurrent(value);
+      } else {
+        els.video.currentTime = reviewToNative(value);
+      }
+    }
+
+    function enableFallback() {
+      if (!state.runId || state.fallback) return;
+      state.fallback = true;
+      state.fallbackTime = nativeToReview(Number(els.video.currentTime || 0));
+      els.video.classList.add("hidden");
+      els.frameView.classList.remove("hidden");
+      els.fallbackControls.classList.remove("hidden");
+      renderFallbackFrame();
+    }
+
+    function disableFallback() {
+      stopFallback();
+      state.fallback = false;
+      state.fallbackTime = 0;
+      els.video.classList.remove("hidden");
+      els.frameView.classList.add("hidden");
+      els.fallbackControls.classList.add("hidden");
+      els.frameView.removeAttribute("src");
+      els.fallbackPlay.textContent = "Play";
+      els.fallbackSeek.value = "0";
+      els.fallbackTime.textContent = "0.0s";
+    }
+
+    function renderFallbackFrame() {
+      if (!state.fallback || !state.runId) return;
+      const t = Math.max(0, Math.min(state.fallbackTime, timelineMax()));
+      state.fallbackTime = t;
+      els.frameView.src = `/frame/${encodeURIComponent(state.runId)}.jpg?t=${t.toFixed(3)}&cache=${Date.now()}`;
+      els.fallbackSeek.value = String(t);
+      els.fallbackTime.textContent = `${fmt(t)}s`;
+    }
+
+    function startFallback() {
+      if (state.fallbackPlaying) return;
+      state.fallbackPlaying = true;
+      state.lastTick = performance.now();
+      els.fallbackPlay.textContent = "Pause";
+      state.fallbackTimer = window.setInterval(() => {
+        const now = performance.now();
+        const dt = (now - state.lastTick) / 1000;
+        state.lastTick = now;
+        state.fallbackTime += dt;
+        if (state.fallbackTime >= timelineMax()) {
+          state.fallbackTime = timelineMax();
+          stopFallback();
+        }
+        renderFallbackFrame();
+        updateCurrent(state.fallbackTime);
+      }, 120);
+    }
+
+    function stopFallback() {
+      state.fallbackPlaying = false;
+      els.fallbackPlay.textContent = "Play";
+      if (state.fallbackTimer) {
+        window.clearInterval(state.fallbackTimer);
+        state.fallbackTimer = null;
+      }
+    }
+
+    function rowAt(time) {
+      if (!state.rows.length) return -1;
+      const idx = state.rows.findIndex(row => {
+        const start = rowStart(row);
+        const end = rowEnd(row);
+        return time >= start && time <= end;
+      });
+      if (idx >= 0) return idx;
+      let best = 0;
+      let bestDist = Infinity;
+      state.rows.forEach((row, i) => {
+        const mid = (rowStart(row) + rowEnd(row)) / 2;
+        const dist = Math.abs(time - mid);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = i;
+        }
+      });
+      return best;
+    }
+
+    function updateCurrent(time) {
+      const idx = rowAt(time);
+      if (idx === state.currentIndex) {
+        drawChart();
+        return;
+      }
+      state.currentIndex = idx;
+      renderMetrics(state.rows[idx]);
+      [...els.rows.querySelectorAll("tr")].forEach((tr, i) => {
+        tr.classList.toggle("active", i === idx);
+      });
+      drawChart();
+    }
+
+    function renderMetrics(row) {
+      const entries = [
+        ["Active tracks", row?.active_tracks],
+        ["Unique total", row?.unique_total],
+        ["Avg persons/frame", row?.avg_persons_per_frame],
+        ["Peak persons", row?.peak_persons],
+        ["Avg confidence", row?.avg_confidence],
+        ["Window", row ? `${fmt(rowStart(row))}-${fmt(rowEnd(row))}s` : "-"]
+      ];
+      els.metrics.innerHTML = entries.map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${fmt(value)}</strong></div>`).join("");
+    }
+
+    function renderRows() {
+      els.rows.innerHTML = state.rows.map(row => `
+        <tr>
+          <td>${fmt(rowStart(row))}-${fmt(rowEnd(row))}s</td>
+          <td>${fmt(row.active_tracks)}</td>
+          <td>${fmt(row.unique_total)}</td>
+          <td>${fmt(row.avg_persons_per_frame)}</td>
+          <td>${fmt(row.peak_persons)}</td>
+          <td>${fmt(row.avg_confidence)}</td>
+          <td>${row.face_visible_ratio === undefined ? "-" : pct(row.face_visible_ratio)}</td>
+          <td>${row.concurrent_gazers === undefined ? "-" : fmt(row.concurrent_gazers)}</td>
+          <td>${fmt(row.frame_count)}</td>
+        </tr>
+      `).join("");
+    }
+
+    function chartGeometry(canvas) {
+      const rect = canvas.getBoundingClientRect();
+      const ratio = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.floor(rect.width * ratio));
+      canvas.height = Math.max(1, Math.floor(rect.height * ratio));
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      return { ctx, width: rect.width, height: rect.height, padL: 54, padR: 16, padT: 18, padB: 34 };
+    }
+
+    function drawChart() {
+      const { ctx, width, height, padL, padR, padT, padB } = chartGeometry(els.chart);
+      ctx.clearRect(0, 0, width, height);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, width, height);
+      ctx.strokeStyle = "#d9dee7";
+      ctx.lineWidth = 1;
+
+      const rows = state.rows.filter(row => row && !row.error);
+      if (!rows.length) {
+        ctx.fillStyle = "#647084";
+        ctx.fillText("No rows", padL, padT + 18);
+        return;
+      }
+
+      const metric = els.metric.value;
+      const maxTime = Math.max(...rows.map(row => rowEnd(row)), 1);
+      const values = rows.map(row => Number(row[metric] ?? 0));
+      const maxValue = Math.max(...values, 1);
+      const plotW = width - padL - padR;
+      const plotH = height - padT - padB;
+      const x = sec => padL + (sec / maxTime) * plotW;
+      const y = val => padT + plotH - (val / maxValue) * plotH;
+
+      for (let i = 0; i <= 4; i++) {
+        const yy = padT + (plotH / 4) * i;
+        ctx.beginPath();
+        ctx.moveTo(padL, yy);
+        ctx.lineTo(width - padR, yy);
+        ctx.stroke();
+      }
+
+      ctx.strokeStyle = colors[0];
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      rows.forEach((row, i) => {
+        const sec = rowEnd(row);
+        const val = Number(row[metric] ?? 0);
+        if (i === 0) ctx.moveTo(x(sec), y(val));
+        else ctx.lineTo(x(sec), y(val));
+      });
+      ctx.stroke();
+
+      ctx.fillStyle = colors[0];
+      rows.forEach(row => {
+        const sec = rowEnd(row);
+        const val = Number(row[metric] ?? 0);
+        ctx.beginPath();
+        ctx.arc(x(sec), y(val), 4, 0, Math.PI * 2);
+        ctx.fill();
+      });
+
+      const selectedRow = state.rows[state.currentIndex];
+      if (selectedRow && !selectedRow.error) {
+        const sec = rowEnd(selectedRow);
+        const val = Number(selectedRow[metric] ?? 0);
+        ctx.strokeStyle = "#dc2626";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(x(sec), y(val), 7, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
+      const t = playbackTime();
+      const playX = x(Math.min(t, maxTime));
+      ctx.strokeStyle = "#dc2626";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(playX, padT);
+      ctx.lineTo(playX, padT + plotH);
+      ctx.stroke();
+
+      ctx.fillStyle = "#18202d";
+      ctx.font = "12px system-ui, sans-serif";
+      ctx.fillText(metric, padL, 14);
+      ctx.fillStyle = "#647084";
+      ctx.fillText(`0`, 12, padT + plotH);
+      ctx.fillText(fmt(maxValue), 12, padT + 6);
+      ctx.fillText(`0s`, padL, height - 10);
+      ctx.fillText(`${fmt(maxTime)}s`, width - padR - 46, height - 10);
+    }
+
+    els.video.addEventListener("timeupdate", () => updateCurrent(playbackTime()));
+    els.video.addEventListener("seeked", () => updateCurrent(playbackTime()));
+    els.video.addEventListener("error", enableFallback);
+    els.video.addEventListener("stalled", () => {
+      if (els.video.readyState === 0) enableFallback();
+    });
+    els.fallbackPlay.addEventListener("click", () => {
+      if (state.fallbackPlaying) stopFallback();
+      else startFallback();
+    });
+    els.fallbackSeek.addEventListener("input", () => {
+      stopFallback();
+      state.fallbackTime = Number(els.fallbackSeek.value || 0);
+      renderFallbackFrame();
+      updateCurrent(state.fallbackTime);
+    });
+    els.metric.addEventListener("change", drawChart);
+    els.refresh.addEventListener("click", loadSessions);
+    els.toggleSidebar.addEventListener("click", () => {
+      setSidebarCollapsed(!els.layout.classList.contains("sidebar-collapsed"));
+    });
+    window.addEventListener("resize", drawChart);
+    els.chart.addEventListener("click", event => {
+      if (!state.rows.length) return;
+      const rect = els.chart.getBoundingClientRect();
+      const rows = state.rows.filter(row => row && !row.error);
+      const padL = 54;
+      const padR = 16;
+      const padT = 18;
+      const padB = 34;
+      const clickX = event.clientX - rect.left;
+      const clickY = event.clientY - rect.top;
+      const maxTime = timelineMax();
+      const metric = els.metric.value;
+      const values = rows.map(row => Number(row[metric] ?? 0));
+      const maxValue = Math.max(...values, 1);
+      const plotW = rect.width - padL - padR;
+      const plotH = rect.height - padT - padB;
+      const pointX = sec => padL + (sec / maxTime) * plotW;
+      const pointY = val => padT + plotH - (val / maxValue) * plotH;
+      let nearest = null;
+      rows.forEach(row => {
+        const sec = rowEnd(row);
+        const val = Number(row[metric] ?? 0);
+        const dx = clickX - pointX(sec);
+        const dy = clickY - pointY(val);
+        const dist = Math.hypot(dx, dy);
+        if (!nearest || dist < nearest.dist) nearest = { row, dist, sec };
+      });
+      if (!nearest || nearest.dist > 14) return;
+      setPlaybackTime(nearest.sec);
+    });
+
+    setSidebarCollapsed(window.localStorage.getItem("loovi.sidebarCollapsed") === "1");
+    loadSessions().catch(err => {
+      els.sessions.className = "empty";
+      els.sessions.textContent = err.message;
+    });
+  </script>
+</body>
+</html>

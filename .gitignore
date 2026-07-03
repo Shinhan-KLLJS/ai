@@ -1,23 +1,41 @@
-# Python
+# Python cache
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
-# 가상환경
+# Virtual environments
 venv/
+.venv/
 
-# 모델 바이너리 (용량 초과 — 아래 README 설명 참고)
-models/yolov8n.onnx
-models/yolov8n-face.onnx
-models/sixdrepnet.onnx.data
-models/res10_300x300_ssd_iter_140000.caffemodel
+# Model binaries
+models/*.onnx
+models/*.onnx.data
 *.pt
 *.caffemodel
 
-# 런타임 데이터
+# Runtime data
+data/
 data_log.jsonl
+data/*.jsonl
+data/jsonl/
+data/experiments/
+data/videos/
+data/sessions/
+recordings/
+sessions/
+*.mp4
+*.avi
+*.mov
 
-# 임시 파일
+# Local/editor files
 *.tmp
 *.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
+CLAUDE.md

@@ -1,158 +1,147 @@
-# AdScope
+# Loovi
 
-카메라 기반 Vision AI로 오프라인 광고판의 효과를 실시간으로 측정하는 솔루션입니다.
+카메라 기반 Vision AI로 오프라인 광고판 앞의 사람을 감지하고 집계하는 프로젝트입니다.
 
-광고판 앞을 지나는 고유 방문자를 감지하고, 주목률과 인구통계(성별, 연령)를 집계합니다. 영상은 일절 저장하지 않으며, 수치 데이터만 로컬에 기록합니다.
+새 구현은 `loovi_vision/` 패키지에서 관리합니다. 상세 설명은 [loovi_vision/README.md](loovi_vision/README.md)를 참고하세요.
 
----
+현재 구현 범위:
 
-## 동작 원리
-
-```
-카메라 → 전신 감지 → 헤드 포즈 → 주목 판정 → 고유 인원 트래킹 → JSONL 저장
-              ↓
-         얼굴 감지 → 성별 / 연령 추정
-```
-
-| 모델 | 역할 |
-|---|---|
-| YOLOv8n (COCO) | 전신 바운딩 박스 — 주 트래킹 소스 |
-| YOLOv8n-face | 얼굴 crop — 시선 판단 및 성별/연령 입력 |
-| SixDRepNet360 | 헤드 포즈(yaw/pitch/roll) → LOOK / PASS 판정 |
-| InsightFace genderage | 성별(M/F) + 연령 추정 |
-
----
-
-## 요구 사항
-
-- Windows 10/11, Python **3.11** (3.12 이상은 torch DLL 미지원)
-- 웹캠
-
-### 고정 패키지 버전
-
-```
-onnxruntime==1.19.2
-numpy==2.1.0
+```text
+Camera
+ → YOLO person detection
+ → BoT-SORT / ByteTrack / custom tracking
+ → person crop 기반 face detection + gender / age (insightface)
+ → head pose 기반 gaze(주목) 판정
+ → 1초 단위 JSONL 저장 + 5초 구간 summary (SQS 전송)
+ → 오버레이 영상 저장 + 로컬 웹 리뷰
 ```
 
-다른 버전은 DLL 충돌이 발생할 수 있습니다.
-
----
-
-## 설치
-
-```bash
-# 1. 클론
-git clone https://github.com/Shinhan-KLLJS/ai.git
-cd ai
-
-# 2. Python 3.11 가상환경 생성
-py -3.11 -m venv venv
-venv\Scripts\activate
-
-# 3. 패키지 설치
-pip install opencv-python onnxruntime==1.19.2 numpy==2.1.0 ultralytics
-```
-
----
-
-## 모델 파일 준비
-
-용량이 큰 모델 바이너리는 git에서 제외되어 있습니다. 최초 실행 전 아래 순서대로 준비하세요.
-
-### SixDRepNet360 (헤드 포즈)
-
-```bash
-python export_6drepnet_v3.py
-```
-
-`models/sixdrepnet.onnx` (138KB 구조 파일)와 `models/sixdrepnet.onnx.data` (~150MB 가중치)가 자동 생성됩니다.
-
-### YOLOv8n (전신 감지)
-
-```bash
-python -c "
-from ultralytics import YOLO; import shutil, pathlib
-YOLO('yolov8n.pt').export(format='onnx', opset=12, simplify=True)
-shutil.move('yolov8n.onnx', 'models/yolov8n.onnx')
-print('완료')
-"
-```
-
-### YOLOv8n-face (얼굴 감지)
-
-아래 링크에서 다운로드 후 `models/yolov8n-face.onnx`로 저장:
-
-```
-https://github.com/akanametov/yolo-face/releases/download/v0.0.0/yolov8n-face.onnx
-```
-
-### InsightFace genderage (성별/연령)
-
-아래 링크에서 다운로드 후 `models/genderage.onnx`로 저장:
-
-```
-https://huggingface.co/DIAMONIK7777/antelopev2/resolve/main/genderage.onnx
-```
+face / gaze / realtime 계층은 `configs/person_only.yaml`의 `enable` 플래그로 켜고 끕니다. 모두 `false`면 person-only 동작과 동일합니다.
 
 ---
 
 ## 실행
 
-```bash
-# 가상환경 활성화 후
+```powershell
 venv\Scripts\activate
-
-# 최신 버전 실행
-python adscope_v7.py
+python main.py
 ```
 
-종료는 카메라 화면에서 **q** 키를 누릅니다. 결과는 `data_log.jsonl`에 누적 저장됩니다.
+동일한 실행을 모듈로 직접 호출할 수도 있습니다.
 
----
-
-## 출력 형식 — data_log.jsonl
-
-15초 단위로 한 줄씩 JSON이 기록됩니다:
-
-| 필드 | 설명 |
-|---|---|
-| `unique_total` | 윈도우 내 감지된 고유 인원 수 |
-| `unique_looked` | 광고판을 바라본 고유 인원 수 |
-| `unique_attention_rate` | 주목률 (%) = `unique_looked / unique_total × 100` |
-| `unique_male` / `unique_female` | 성별 분류 |
-| `avg_age` | 추정 평균 연령 |
-| `age_distribution` | 연령대별 인원 (10대 / 20대 / 30대 / 40대 / 50대 이상) |
-| `frame_attention_rate` | 프레임 기준 주목률 (얼마나 오래 봤는가) |
-| `avg_attention_score` | 시선 품질 점수 0~100 (100 = 완전 정면 주목) |
-| `peak_persons` | 단일 프레임 최대 동시 감지 인원 |
-
-전체 필드 설명은 `DATA_LOG_SCHEMA.md`를 참고하세요.
-
----
-
-## 프로젝트 구조
-
-```
-adscope/
-├── adscope_v7.py          # 메인 — 전신+얼굴 이중 트래킹
-├── adscope_v6.py          # 이전 버전 — 얼굴 전용 트래킹 (참고용)
-├── export_6drepnet_v3.py  # SixDRepNet ONNX 익스포트 스크립트
-├── DATA_LOG_SCHEMA.md     # data_log.jsonl 필드 상세 설명
-├── CLAUDE_LOG.md          # 아키텍처 결정 및 변경 이력
-└── models/
-    ├── yolov8n.onnx           # 전신 감지 (gitignore — 로컬 생성)
-    ├── yolov8n-face.onnx      # 얼굴 감지 (gitignore — 수동 다운로드)
-    ├── sixdrepnet.onnx        # 헤드 포즈 구조 파일
-    ├── sixdrepnet.onnx.data   # 헤드 포즈 가중치 (gitignore)
-    └── genderage.onnx         # 성별/연령 추정 모델
+```powershell
+python -m loovi_vision.pipelines.person_only --config loovi_vision\configs\person_only.yaml
 ```
 
 ---
 
-## 개인정보 보호
+## 설정
 
-- 영상은 어떠한 형태로도 저장되지 않습니다
-- `data_log.jsonl`에는 집계된 수치 데이터만 기록됩니다
-- 모든 추론은 로컬 디바이스에서 실행됩니다
+설정은 YAML로 관리합니다.
 
+```text
+loovi_vision/configs/person_only.yaml
+```
+
+주요 설정:
+
+```yaml
+models:
+  person_onnx: models/yolo11l.onnx
+
+detector:
+  person_conf_min: 0.50
+  iou_threshold: 0.45
+
+tracker:
+  backend: botsort   # botsort | bytetrack | custom
+  min_hits: 3
+
+runtime:
+  batch_sec: 1
+  record_video: true
+  record_overlay: true
+```
+
+---
+
+## 데이터
+
+실행마다 하나의 `run_id`를 만들고, JSONL/영상/세션 메타파일을 같은 이름으로 저장합니다.
+
+```text
+data/jsonl/YYMMDD_HHMMSS_person_only.jsonl
+data/videos/YYMMDD_HHMMSS_person_only.mp4
+data/sessions/YYMMDD_HHMMSS_person_only.json
+```
+
+`runtime.batch_sec`를 `1`로 두면 1초 단위로 JSONL이 기록됩니다.
+
+영상 저장은 기본으로 켜져 있습니다.
+
+```yaml
+runtime:
+  record_video: true
+  record_overlay: true   # true: bbox/ID가 그려진 영상, false: 원본 영상
+  video_dir: data/videos
+  session_dir: data/sessions
+  video_fps: 30
+```
+
+로컬 리뷰 뷰어를 실행하면 브라우저에서 영상과 JSONL 추이 차트를 함께 볼 수 있습니다.
+
+```powershell
+python -m loovi_vision.review.server --port 8765
+```
+
+브라우저에서 `http://127.0.0.1:8765`에 접속합니다.
+
+JSONL 예시:
+
+```json
+{
+  "run_id": "260630_154210_person_only",
+  "mode": "person_only",
+  "elapsed_start_sec": 0.0,
+  "elapsed_end_sec": 1.02,
+  "frame_count": 75,
+  "frame_detections": 140,
+  "avg_persons_per_frame": 1.87,
+  "peak_persons": 3,
+  "unique_total": 2,
+  "active_tracks": 2,
+  "tracker_backend": "botsort"
+}
+```
+
+---
+
+## 구조
+
+```text
+loovi_vision/
+  config.py / runtime.py    # 설정 로드, ONNX Runtime provider 구성
+  detectors/                # person / face / head pose 검출
+  tracking/                 # BoT-SORT · ByteTrack · custom tracker
+  enrich/                   # face·gaze 보강, 세션 요약(session_summary)
+  analysis/                 # 응시 세션 사후(COLD) 분석
+  realtime/                 # 5초 구간 스냅샷 SQS 전송(summary)
+  pipelines/                # person_only 메인 루프 + 프레임 렌더
+  review/                   # 로컬 리뷰 서버(paths·state·handler·media)
+  tools/                    # 포즈 캘리브레이션 · SQS 스모크 테스트
+  configs/person_only.yaml
+
+main.py                     # 진입점 (python main.py)
+models/                     # ONNX 모델 (git 미추적)
+data/                       # 실행 산출물 jsonl/videos/sessions (git 미추적)
+```
+
+---
+
+## 모델 변환
+
+새 YOLO `.pt` 모델을 받으면 ONNX로 변환한 뒤 YAML에 `.onnx` 경로를 넣습니다.
+
+```powershell
+python export_yolo_onnx.py models/yolo11l.pt
+```

@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Vision Summary Message (5-second window)",
+  "type": "object",
+  "required": [
+    "device_id", "board_id", "seq", "timestamp", "interval_sec",
+    "ots_count", "lts_count", "ots_demographics", "lts_demographics", "attention"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "device_id": { "type": "string", "minLength": 1 },
+    "board_id": { "type": "string", "minLength": 1 },
+    "seq": { "type": "integer", "minimum": 1 },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "interval_sec": { "type": "number", "exclusiveMinimum": 0 },
+    "ots_count": { "type": "integer", "minimum": 0 },
+    "lts_count": { "type": "integer", "minimum": 0 },
+    "ots_demographics": { "$ref": "#/definitions/demographics" },
+    "lts_demographics": { "$ref": "#/definitions/demographics" },
+    "attention": {
+      "type": "object",
+      "required": ["avg_dwell_sec", "dwell_sum_sec", "dwell_distribution"],
+      "additionalProperties": false,
+      "properties": {
+        "avg_dwell_sec": { "type": "number", "minimum": 0 },
+        "dwell_sum_sec": { "type": "number", "minimum": 0 },
+        "dwell_distribution": {
+          "type": "object",
+          "required": ["1_to_2s", "over_2s"],
+          "additionalProperties": false,
+          "properties": {
+            "1_to_2s": { "type": "integer", "minimum": 0 },
+            "over_2s": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "ageBuckets": {
+      "type": "object",
+      "required": ["under10", "10s", "20s", "30s", "40s", "50s", "60plus"],
+      "additionalProperties": false,
+      "properties": {
+        "under10": { "type": "integer", "minimum": 0 },
+        "10s": { "type": "integer", "minimum": 0 },
+        "20s": { "type": "integer", "minimum": 0 },
+        "30s": { "type": "integer", "minimum": 0 },
+        "40s": { "type": "integer", "minimum": 0 },
+        "50s": { "type": "integer", "minimum": 0 },
+        "60plus": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "demographics": {
+      "type": "object",
+      "required": ["gender", "male_age", "female_age"],
+      "additionalProperties": false,
+      "properties": {
+        "gender": {
+          "type": "object",
+          "required": ["male", "female"],
+          "additionalProperties": false,
+          "properties": {
+            "male": { "type": "integer", "minimum": 0 },
+            "female": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "male_age": { "$ref": "#/definitions/ageBuckets" },
+        "female_age": { "$ref": "#/definitions/ageBuckets" }
+      }
+    }
+  }
+}

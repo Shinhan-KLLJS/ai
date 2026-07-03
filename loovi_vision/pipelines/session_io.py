@@ -1,0 +1,106 @@
+import json
+import time
+from datetime import datetime
+
+import cv2
+
+
+def make_run_id(settings):
+    # JSONL, 영상, session 메타파일을 같은 basename으로 묶기 위한 실행 ID.
+    stamp = datetime.now().strftime("%y%m%d_%H%M%S")
+    return f"{stamp}_{settings.output_suffix}"
+
+
+def output_path(settings, run_id):
+    # 1초 단위 집계 row를 append할 JSONL 파일 경로.
+    settings.output_dir.mkdir(parents=True, exist_ok=True)
+    return settings.output_dir / f"{run_id}.jsonl"
+
+
+def video_path(settings, run_id):
+    # 리뷰용 오버레이 또는 원본 영상을 저장할 MP4 파일 경로.
+    settings.video_dir.mkdir(parents=True, exist_ok=True)
+    return settings.video_dir / f"{run_id}.mp4"
+
+
+def session_path(settings, run_id):
+    # 한 실행의 설정과 산출물 경로를 묶는 manifest 파일 경로.
+    settings.session_dir.mkdir(parents=True, exist_ok=True)
+    return settings.session_dir / f"{run_id}.json"
+
+
+def poses_path(settings, run_id):
+    # COLD raw: 매 검출 프레임의 head pose 원시 기록(JSONL) 경로.
+    settings.poses_dir.mkdir(parents=True, exist_ok=True)
+    return settings.poses_dir / f"{run_id}.jsonl"
+
+
+def path_text(path):
+    return str(path).replace("\\", "/") if path else None
+
+
+def write_session_manifest(path, payload):
+    # 실행 시작 시 running 상태로 쓰고, 종료 시 completed 상태로 덮어쓴다.
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+
+
+def open_capture(settings):
+    # 입력 소스를 연다. camera.video_path 가 있으면 사전 촬영 영상 파일(통제된 실측 시연),
+    # 없으면 실시간 웹캠. 두 번째 반환값 source_fps 는 영상 파일일 때만(실시간 페이싱용) 채운다.
+    if settings.camera_video:
+        cap = cv2.VideoCapture(settings.camera_video)
+        return cap, float(cap.get(cv2.CAP_PROP_FPS) or settings.video_fps)
+    cap = cv2.VideoCapture(settings.camera_id, settings.camera_backend)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, settings.frame_w)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, settings.frame_h)
+    return cap, 0.0
+
+
+def pace_realtime(frame_id, source_fps, run_started_at):
+    # 사전 촬영 영상을 원래 속도로 재생: 처리가 앞서 나간 만큼만 잠깐 대기한다.
+    # 이렇게 하면 시청 시간(elapsed 기준)과 화면 재생 속도가 실시간과 일치한다.
+    if source_fps <= 0:
+        return
+    ahead = frame_id / source_fps - (time.time() - run_started_at)
+    if ahead > 0:
+        time.sleep(ahead)
+
+
+def open_video_writer(settings, path, frame_shape):
+    # OpenCV VideoWriter는 첫 프레임 크기를 기준으로 고정 크기 MP4를 생성한다.
+    height, width = frame_shape[:2]
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(path), fourcc, settings.video_fps, (width, height))
+    if not writer.isOpened():
+        raise RuntimeError(f"Cannot open video writer: {path}")
+    return writer
+
+
+def build_manifest(settings, run_id, out_path, rec_path, started_text):
+    # 실행 설정과 산출물 경로를 담는 session manifest의 초기(running) 상태.
+    return {
+        "run_id": run_id,
+        "status": "running",
+        "board_id": settings.board_id,
+        "experiment": settings.experiment_name,
+        "mode": "person_only",
+        "started_at": started_text,
+        "ended_at": None,
+        "jsonl_path": path_text(out_path),
+        "video_path": path_text(rec_path),
+        "video_kind": "overlay" if settings.record_overlay else "raw",
+        "record_video": settings.record_video,
+        "record_overlay": settings.record_overlay,
+        "video_fps": settings.video_fps,
+        "frame_width": settings.frame_w,
+        "frame_height": settings.frame_h,
+        "person_model": path_text(settings.person_onnx),
+        "person_conf_min": settings.person_conf_min,
+        "iou_threshold": settings.iou_threshold,
+        "tracker_backend": settings.tracker_backend,
+        "track_min_hits": settings.track_min_hits,
+        "face_enabled": settings.face_enable,
+        "gaze_enabled": settings.gaze_enable,
+        "realtime_enabled": settings.rt_enable,
+    }

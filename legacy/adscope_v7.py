@@ -2,15 +2,16 @@
 AdScope v7 — Phase A: Person bbox 기반 트래킹
 
 v6 대비 변경:
-  - PersonDetector 추가: YOLOv8n (COCO) class=0 person 감지
+  - PersonDetector 추가: YOLO 계열 COCO class=0 person 감지
   - UniquePersonTracker 입력을 face bbox → person bbox로 교체
     → 전신/상체 bbox는 고개 방향과 무관하게 안정적
-  - YOLOv8n-face는 보조 역할 (시선 판단 + 성별/연령 추정)
+  - YOLO face detector는 보조 역할 (시선 판단 + 성별/연령 추정)
   - face → person 연결: face 중심점이 person bbox 내부에 있으면 연결
   - 화면에 person bbox(큰 박스) + face bbox(작은 박스) 이중 표시
 """
 
 import sys
+import os
 import cv2
 import numpy as np
 import json
@@ -20,6 +21,7 @@ import zipfile
 import io
 import urllib.request
 from datetime import datetime
+from types import SimpleNamespace
 from pathlib import Path
 
 
@@ -30,8 +32,8 @@ class Config:
     # 판정 기준
     YAW_THRESHOLD    = 30
     PITCH_THRESHOLD  = 25
-    FACE_CONF_MIN    = 0.45
-    PERSON_CONF_MIN  = 0.40
+    FACE_CONF_MIN    = 0.50
+    PERSON_CONF_MIN  = 0.50
     IOU_THRESHOLD    = 0.45
 
     # 처리 주기
@@ -39,6 +41,7 @@ class Config:
 
     # 카메라
     CAMERA_ID        = 0
+    CAMERA_BACKEND   = cv2.CAP_DSHOW
     FRAME_W          = 1280
     FRAME_H          = 720
 
@@ -47,8 +50,8 @@ class Config:
 
     # 모델 경로
     MODEL_DIR        = Path("models")
-    PERSON_ONNX      = Path("models") / "yolov8n.onnx"
-    YOLO_ONNX        = Path("models") / "yolov8n-face.onnx"
+    PERSON_ONNX      = Path("models") / "yolo11l.onnx"
+    YOLO_ONNX        = Path("models") / "yolov11l-face.onnx"
     POSE_ONNX        = Path("models") / "sixdrepnet.onnx"
     GENDER_AGE_ONNX  = Path("models") / "genderage.onnx"
 
@@ -60,15 +63,27 @@ class Config:
 
     # 감지 최소 크기
     PERSON_MIN_HEIGHT = 40    # px — 이 높이 미만 person bbox는 무시
+    PERSON_MIN_AREA_RATIO = 0.002
+    PERSON_MAX_AREA_RATIO = 0.70
     MIN_FACE_SIZE     = 8     # px — 이 크기 미만 face bbox는 무시
 
     # YOLO 입력 해상도
     YOLO_INPUT_SIZE  = 640    # person 감지는 640으로 충분 (전신 크기)
-    FACE_INPUT_SIZE  = 960    # face 감지는 고해상도 유지
+    FACE_INPUT_SIZE  = 960    # legacy ONNX용 기본값. 고정 입력 모델은 실제 shape를 자동 사용.
 
     # 성별/연령
     GENDER_AGE_MIN_FACE = 25
     GENDER_AGE_REFRESH  = 30
+
+    # 트랙 안정화: 같은 bbox가 몇 번 이어져야 고유 인원으로 확정할지.
+    TRACK_MIN_HITS = 3
+    TRACK_BOX_SMOOTH_ALPHA = 0.65
+    TRACKER_BACKEND = "botsort"  # "botsort" | "bytetrack" | "custom"
+    TRACKER_GMC_METHOD = "none"  # 고정 카메라 환경에서는 none이 안정적
+
+    # CUDA 12.x + cuDNN 9.x + MSVC runtime 준비 후 True로 변경.
+    # False이면 onnxruntime-gpu가 설치되어 있어도 CPU로 조용히 실행한다.
+    ENABLE_CUDA = True
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -91,6 +106,37 @@ DOWNLOAD_URLS = {
         "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip",
     ],
 }
+
+_ORT_DLLS_PRELOADED = False
+
+def ort_providers():
+    global _ORT_DLLS_PRELOADED
+    if Config.ENABLE_CUDA:
+        if not _ORT_DLLS_PRELOADED:
+            try:
+                import nvidia
+                nvidia_dir = Path(nvidia.__file__).parent
+                for bin_dir in nvidia_dir.glob("**/bin"):
+                    if bin_dir.is_dir():
+                        os.add_dll_directory(str(bin_dir))
+                        os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+            except Exception as e:
+                print(f"  WARNING: NVIDIA DLL path setup failed: {e}")
+            try:
+                import onnxruntime as ort
+                if hasattr(ort, "preload_dlls"):
+                    ort.preload_dlls()
+            except Exception as e:
+                print(f"  WARNING: CUDA DLL preload failed: {e}")
+            _ORT_DLLS_PRELOADED = True
+        return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+    return ["CPUExecutionProvider"]
+
+def provider_label(sess):
+    return sess.get_providers()[0].replace("ExecutionProvider", "")
+
+def model_label(path):
+    return Path(path).stem
 
 def _download_file(url, dest_path, desc):
     print(f"  Downloading {desc}... ", end="", flush=True)
@@ -122,7 +168,10 @@ def _try_extract_from_zip(zip_url, inner_filename, dest_path):
     return False
 
 def _try_export_yolov8n():
-    """ultralytics 설치된 경우 yolov8n.onnx 직접 익스포트."""
+    """legacy yolov8n.onnx fallback. 현재 모델명이 yolov8n.onnx일 때만 사용."""
+    if Config.PERSON_ONNX.name != "yolov8n.onnx":
+        print(f"  Skip yolov8n fallback for configured model: {Config.PERSON_ONNX.name}")
+        return False
     try:
         from ultralytics import YOLO
         print("  Exporting yolov8n.onnx via ultralytics...")
@@ -144,8 +193,8 @@ def check_and_download_models():
     results = {"person": False, "yolo": False, "pose": False, "gender_age": False}
 
     specs = [
-        ("person",     Config.PERSON_ONNX,     Config.PERSON_MIN_SIZE,     "YOLOv8n person ONNX"),
-        ("yolo",       Config.YOLO_ONNX,        Config.YOLO_MIN_SIZE,       "YOLOv8n-face ONNX"),
+        ("person",     Config.PERSON_ONNX,     Config.PERSON_MIN_SIZE,     f"{model_label(Config.PERSON_ONNX)} person ONNX"),
+        ("yolo",       Config.YOLO_ONNX,        Config.YOLO_MIN_SIZE,       f"{model_label(Config.YOLO_ONNX)} face ONNX"),
         ("pose",       Config.POSE_ONNX,         Config.POSE_MIN_SIZE,       "6DRepNet360 ONNX"),
         ("gender_age", Config.GENDER_AGE_ONNX,   Config.GENDER_AGE_MIN_SIZE, "InsightFace genderage ONNX"),
     ]
@@ -187,11 +236,11 @@ def check_and_download_models():
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ③ YOLOv8n Person 감지기 (Phase A 핵심)
+# ③ Person 감지기 (Phase A 핵심)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 class PersonDetector:
     """
-    YOLOv8n COCO class=0 (person) 전용 감지기.
+    COCO class=0 (person) 전용 감지기.
     출력 shape: (1, 84, 8400) — [cx,cy,w,h, 80-class-scores...]
     person score = out[0, 4, :]
     """
@@ -202,13 +251,13 @@ class PersonDetector:
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         self.sess = ort.InferenceSession(
             str(Config.PERSON_ONNX), sess_options=opts,
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+            providers=ort_providers()
         )
         self.input_name = self.sess.get_inputs()[0].name
         inp_shape = self.sess.get_inputs()[0].shape  # e.g. [1,3,640,640]
         self.input_hw = (int(inp_shape[2]), int(inp_shape[3]))  # (H, W)
-        used = self.sess.get_providers()[0].replace("ExecutionProvider", "")
-        print(f"  OK PersonDetector [YOLOv8n {self.input_hw[0]}px] [{used}]")
+        used = provider_label(self.sess)
+        print(f"  OK PersonDetector [{model_label(Config.PERSON_ONNX)} {self.input_hw[0]}px] [{used}]")
 
     def _letterbox(self, frame):
         size = self.input_hw[0]
@@ -271,10 +320,16 @@ class PersonDetector:
         keep = self._nms(boxes, person_scores)
 
         results = []
+        frame_area = float(w * h)
         for idx in keep:
             x1i, y1i, x2i, y2i = map(int, boxes[idx])
             bw_i, bh_i = x2i - x1i, y2i - y1i
             if bh_i < Config.PERSON_MIN_HEIGHT:
+                continue
+            area_ratio = (bw_i * bh_i) / frame_area
+            if area_ratio < Config.PERSON_MIN_AREA_RATIO:
+                continue
+            if area_ratio > Config.PERSON_MAX_AREA_RATIO:
                 continue
             results.append({
                 "bbox":       (x1i, y1i, bw_i, bh_i),
@@ -293,14 +348,16 @@ class YOLOFaceDetector:
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         self.sess = ort.InferenceSession(
             str(Config.YOLO_ONNX), sess_options=opts,
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+            providers=ort_providers()
         )
         self.input_name = self.sess.get_inputs()[0].name
-        used = self.sess.get_providers()[0].replace("ExecutionProvider", "")
-        print(f"  OK YOLOv8n-face [{used}] (size={Config.FACE_INPUT_SIZE})")
+        inp_shape = self.sess.get_inputs()[0].shape
+        self.input_hw = (int(inp_shape[2]), int(inp_shape[3]))
+        used = provider_label(self.sess)
+        print(f"  OK FaceDetector [{model_label(Config.YOLO_ONNX)} {self.input_hw[0]}px] [{used}]")
 
     def _letterbox(self, frame):
-        size = Config.FACE_INPUT_SIZE
+        size = self.input_hw[0]
         h, w = frame.shape[:2]
         scale = size / max(h, w)
         nh, nw = int(h * scale), int(w * scale)
@@ -420,11 +477,11 @@ class SixDRepNetPose:
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         self.sess = ort.InferenceSession(
             str(Config.POSE_ONNX), sess_options=opts,
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+            providers=ort_providers()
         )
         self.input_name = self.sess.get_inputs()[0].name
         out_shape = self.sess.get_outputs()[0].shape
-        print(f"  OK SixDRepNet (output: {out_shape})")
+        print(f"  OK SixDRepNet [{provider_label(self.sess)}] (output: {out_shape})")
 
     def _preprocess(self, face_img):
         resized = cv2.resize(face_img, (224, 224))
@@ -514,14 +571,14 @@ class GenderAgeEstimator:
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         self.sess = ort.InferenceSession(
             str(Config.GENDER_AGE_ONNX), sess_options=opts,
-            providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+            providers=ort_providers()
         )
         self.input_name = self.sess.get_inputs()[0].name
         inp   = self.sess.get_inputs()[0]
         out   = self.sess.get_outputs()[0]
         shape = inp.shape
         self.input_size = int(shape[3]) if shape[3] not in (None, "None") else 112
-        used = self.sess.get_providers()[0].replace("ExecutionProvider", "")
+        used = provider_label(self.sess)
         print(f"  OK GenderAge [{used}] ({self.input_size}x{self.input_size}, out:{out.shape})")
 
     def _preprocess(self, face_img):
@@ -576,9 +633,9 @@ class UniquePersonTracker:
     IoU + 중심점 거리 기반 트래킹.
     v7: 입력이 person bbox (전신) → 훨씬 안정적.
     """
-    IOU_THRESH        = 0.30
+    IOU_THRESH        = 0.20
     MAX_MISSING       = 45    # ~3초 (30fps / PROCESS_EVERY_N=2 기준)
-    CENTROID_FALLBACK = 200   # person bbox는 face보다 크므로 fallback 거리도 키움
+    CENTROID_FALLBACK = 260   # person bbox는 face보다 크므로 fallback 거리도 키움
 
     def __init__(self):
         self.tracks        = {}
@@ -605,7 +662,31 @@ class UniquePersonTracker:
         return math.sqrt(((b1[0]+b1[2])/2 - (b2[0]+b2[2])/2)**2 +
                          ((b1[1]+b1[3])/2 - (b2[1]+b2[3])/2)**2)
 
-    def update(self, detections, pose_results, frame_n=0):
+    @staticmethod
+    def _size_similarity(b1, b2):
+        a1 = max(1, (b1[2] - b1[0]) * (b1[3] - b1[1]))
+        a2 = max(1, (b2[2] - b2[0]) * (b2[3] - b2[1]))
+        return min(a1, a2) / max(a1, a2)
+
+    @staticmethod
+    def _smooth_box(old_box, new_box):
+        a = Config.TRACK_BOX_SMOOTH_ALPHA
+        return tuple(
+            int(round(a * old_box[i] + (1 - a) * new_box[i]))
+            for i in range(4)
+        )
+
+    def _confirm_if_ready(self, track):
+        if track.get("counted"):
+            return
+        if track.get("hits", 0) < Config.TRACK_MIN_HITS:
+            return
+        track["counted"] = True
+        self.total_unique += 1
+        if track.get("looked"):
+            self.looked_unique += 1
+
+    def update(self, detections, pose_results, frame_n=0, frame=None):
         """
         detections: person_dets (bbox = x,y,w,h)
         반환: (new_count, det_to_track {det_idx: track_id})
@@ -627,9 +708,10 @@ class UniquePersonTracker:
                     continue
                 s = self._iou(track["box"], box)
                 d = self._centroid_dist(track["box"], box)
+                sim = self._size_similarity(track["box"], box)
                 if s > best_iou:
                     best_iou, best_i = s, i
-                if d < best_dist:
+                if sim >= 0.35 and d < best_dist:
                     best_dist, best_dist_i = d, i
 
             if best_iou >= self.IOU_THRESH and best_i >= 0:
@@ -639,13 +721,16 @@ class UniquePersonTracker:
 
             if best_i >= 0 and (best_iou >= self.IOU_THRESH or
                                  best_dist <= self.CENTROID_FALLBACK):
-                track["box"]     = boxes[best_i]
+                track["box"]     = self._smooth_box(track["box"], boxes[best_i])
                 track["missing"] = 0
+                track["hits"]    = track.get("hits", 1) + 1
                 if (not track["looked"] and
                         best_i < len(pose_results) and
                         pose_results[best_i][3]):
                     track["looked"] = True
-                    self.looked_unique += 1
+                    if track.get("counted"):
+                        self.looked_unique += 1
+                self._confirm_if_ready(track)
                 matched_tracks.add(tid)
                 matched_boxes.add(best_i)
                 det_to_track[best_i] = tid
@@ -659,16 +744,16 @@ class UniquePersonTracker:
                 self.tracks[self.next_id] = {
                     "box":      box,
                     "missing":  0,
+                    "hits":     1,
+                    "counted":  False,
                     "looked":   looking,
                     "gender":   None,
                     "age":      None,
                     "ga_frame": -999,
                 }
                 det_to_track[i] = self.next_id
-                if looking:
-                    self.looked_unique += 1
+                self._confirm_if_ready(self.tracks[self.next_id])
                 self.next_id     += 1
-                self.total_unique += 1
                 new_count         += 1
 
         # 오래 사라진 트랙 제거
@@ -677,6 +762,140 @@ class UniquePersonTracker:
             del self.tracks[tid]
 
         return new_count, det_to_track
+
+
+class TrackerDetections:
+    def __init__(self, xywh, conf, cls, xyxy=None):
+        self.xywh = xywh.astype(np.float32)
+        if xyxy is None:
+            xyxy = np.empty((0, 4), dtype=np.float32)
+            if len(self.xywh):
+                xyxy = self.xywh.copy()
+                xyxy[:, 0] = self.xywh[:, 0] - self.xywh[:, 2] / 2
+                xyxy[:, 1] = self.xywh[:, 1] - self.xywh[:, 3] / 2
+                xyxy[:, 2] = self.xywh[:, 0] + self.xywh[:, 2] / 2
+                xyxy[:, 3] = self.xywh[:, 1] + self.xywh[:, 3] / 2
+        self.xyxy = xyxy.astype(np.float32)
+        self.conf = conf.astype(np.float32)
+        self.cls = cls.astype(np.float32)
+
+    def __len__(self):
+        return len(self.conf)
+
+    def __getitem__(self, idx):
+        return TrackerDetections(self.xywh[idx], self.conf[idx], self.cls[idx], self.xyxy[idx])
+
+
+class UltralyticsPersonTracker(UniquePersonTracker):
+    """
+    BoT-SORT / ByteTrack adapter.
+    Detection은 기존 ONNX Runtime CUDA 결과를 쓰고, association만 Ultralytics tracker에 맡긴다.
+    """
+
+    def __init__(self, backend="botsort"):
+        super().__init__()
+        backend = backend.lower()
+        args = SimpleNamespace(
+            track_high_thresh=0.25,
+            track_low_thresh=0.10,
+            new_track_thresh=0.25,
+            track_buffer=30,
+            match_thresh=0.80,
+            fuse_score=True,
+            gmc_method=Config.TRACKER_GMC_METHOD,
+            proximity_thresh=0.50,
+            appearance_thresh=0.80,
+            with_reid=False,
+            model="auto",
+        )
+        if backend == "bytetrack":
+            from ultralytics.trackers.byte_tracker import BYTETracker
+            self.backend_name = "ByteTrack"
+            self.backend = BYTETracker(args)
+        else:
+            from ultralytics.trackers.bot_sort import BOTSORT
+            self.backend_name = "BoT-SORT"
+            self.backend = BOTSORT(args)
+        print(f"  OK Tracker [{self.backend_name}]")
+
+    @staticmethod
+    def _to_tracker_results(detections):
+        xywh, conf, cls = [], [], []
+        for det in detections:
+            x, y, w, h = det["bbox"]
+            xywh.append([x + w / 2, y + h / 2, w, h])
+            conf.append(det.get("confidence", 1.0))
+            cls.append(0.0)
+        if not xywh:
+            return TrackerDetections(
+                np.empty((0, 4), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+                np.empty((0,), dtype=np.float32),
+            )
+        return TrackerDetections(
+            np.asarray(xywh, dtype=np.float32),
+            np.asarray(conf, dtype=np.float32),
+            np.asarray(cls, dtype=np.float32),
+        )
+
+    def update(self, detections, pose_results, frame_n=0, frame=None):
+        rows = self.backend.update(self._to_tracker_results(detections), img=frame)
+        active_tids = set()
+        det_to_track = {}
+
+        for row in rows:
+            if len(row) < 8:
+                continue
+            x1, y1, x2, y2 = map(int, row[:4])
+            tid = int(row[4])
+            det_idx = int(row[7])
+            if det_idx < 0 or det_idx >= len(detections):
+                continue
+
+            active_tids.add(tid)
+            det_to_track[det_idx] = tid
+            looking = pose_results[det_idx][3] if det_idx < len(pose_results) else False
+
+            if tid not in self.tracks:
+                self.tracks[tid] = {
+                    "box":      (x1, y1, x2, y2),
+                    "missing":  0,
+                    "hits":     1,
+                    "counted":  False,
+                    "looked":   looking,
+                    "gender":   None,
+                    "age":      None,
+                    "ga_frame": -999,
+                }
+            else:
+                track = self.tracks[tid]
+                track["box"] = self._smooth_box(track["box"], (x1, y1, x2, y2))
+                track["missing"] = 0
+                track["hits"] = track.get("hits", 1) + 1
+                if looking and not track.get("looked"):
+                    track["looked"] = True
+                    if track.get("counted"):
+                        self.looked_unique += 1
+
+            self._confirm_if_ready(self.tracks[tid])
+
+        for tid, track in list(self.tracks.items()):
+            if tid not in active_tids:
+                track["missing"] = track.get("missing", 0) + 1
+            if track["missing"] > self.MAX_MISSING:
+                del self.tracks[tid]
+
+        return 0, det_to_track
+
+
+def create_person_tracker():
+    backend = Config.TRACKER_BACKEND.lower()
+    if backend in ("botsort", "bytetrack"):
+        try:
+            return UltralyticsPersonTracker(backend)
+        except Exception as e:
+            print(f"  Tracker backend {backend} failed ({e}); using custom tracker")
+    return UniquePersonTracker()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -711,6 +930,8 @@ class BatchAggregator:
             self.unique_total   = tracker.total_unique
             self.unique_looking = tracker.looked_unique
             for tid, track in tracker.tracks.items():
+                if not track.get("counted"):
+                    continue
                 if tid not in self.demographics_seen and track.get("gender") not in (None, "?"):
                     self.demographics_seen.add(tid)
                     self.demographics.append({
@@ -882,6 +1103,31 @@ def draw(frame, person_dets, face_dets, person_poses, person_scores,
     return frame
 
 
+def warmup_cuda(person_det, face_det, pose_est, ga_est):
+    if not Config.ENABLE_CUDA:
+        return
+
+    print("  CUDA warmup started. First run can take 30-90 seconds...", flush=True)
+    t0 = time.time()
+    frame = np.zeros((Config.FRAME_H, Config.FRAME_W, 3), dtype=np.uint8)
+    face224 = np.zeros((224, 224, 3), dtype=np.uint8)
+    face96 = np.zeros((96, 96, 3), dtype=np.uint8)
+
+    try:
+        if person_det is not None:
+            person_det.detect(frame)
+        if face_det is not None:
+            face_det.detect(frame)
+        if isinstance(pose_est, SixDRepNetPose):
+            pose_est.estimate(face224, (0, 0, 224, 224), frame.shape)
+        if ga_est is not None:
+            ga_est.estimate(face96)
+        print(f"  CUDA warmup done ({time.time() - t0:.1f}s)\n", flush=True)
+    except Exception as e:
+        print(f"  WARNING: CUDA warmup failed: {e}", flush=True)
+        print("  Set Config.ENABLE_CUDA = False if this keeps happening.\n", flush=True)
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ⑬ 실시간 모드
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -905,7 +1151,7 @@ def run_live(board_id="board_gangnam_01"):
             print("  Falling back to face-only mode (v6 behavior)")
             person_det = None
     else:
-        print("  yolov8n.onnx not found — face-only fallback")
+        print(f"  {Config.PERSON_ONNX.name} not found — face-only fallback")
         person_det = None
 
     # Face 감지기
@@ -938,11 +1184,13 @@ def run_live(board_id="board_gangnam_01"):
     if ga_est is None:
         print("  Gender/Age estimation disabled")
 
+    warmup_cuda(person_det, face_det, pose_est, ga_est)
+
     engine     = AttentionEngine()
     aggregator = BatchAggregator(board_id)
-    tracker    = UniquePersonTracker()
+    tracker    = create_person_tracker()
 
-    cap = cv2.VideoCapture(Config.CAMERA_ID)
+    cap = cv2.VideoCapture(Config.CAMERA_ID, Config.CAMERA_BACKEND)
     if not cap.isOpened():
         print(f"  ERROR: Cannot open camera {Config.CAMERA_ID}")
         return
@@ -996,7 +1244,7 @@ def run_live(board_id="board_gangnam_01"):
 
             # ── 5) 트래킹 + 집계 ──
             n_look = sum(1 for _, _, _, lk in person_poses if lk)
-            _, det_to_track = tracker.update(person_dets, person_poses, frame_n)
+            _, det_to_track = tracker.update(person_dets, person_poses, frame_n, frame)
             aggregator.add(len(person_dets), n_look, person_scores, tracker)
 
             # ── 6) 성별/연령 추정 (트랙 단위 캐싱) ──
@@ -1026,9 +1274,10 @@ def run_live(board_id="board_gangnam_01"):
         # ── 통계 패널 데이터 ──
         n_tot  = len(person_dets)
         n_look = sum(1 for _, _, _, lk in person_poses if lk)
-        m_cnt  = sum(1 for t in tracker.tracks.values() if t.get("gender") == "M")
-        f_cnt  = sum(1 for t in tracker.tracks.values() if t.get("gender") == "F")
-        ages   = [t["age"] for t in tracker.tracks.values() if t.get("age") is not None]
+        counted_tracks = [t for t in tracker.tracks.values() if t.get("counted")]
+        m_cnt  = sum(1 for t in counted_tracks if t.get("gender") == "M")
+        f_cnt  = sum(1 for t in counted_tracks if t.get("gender") == "F")
+        ages   = [t["age"] for t in counted_tracks if t.get("age") is not None]
         avg_a  = round(sum(ages) / len(ages), 1) if ages else None
 
         stats = {
@@ -1058,7 +1307,7 @@ def run_live(board_id="board_gangnam_01"):
         save_to_db(p)
     cap.release()
     cv2.destroyAllWindows()
-    print("\nDone. data_log.jsonl saved.")
+    print("\nDone. log saved.")
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
