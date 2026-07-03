@@ -46,7 +46,7 @@ class SummaryAggregator:
             "attention": {
                 "avg_dwell_sec": win["avg_dwell"],   # 이 구간 신규 응시자 인원 기준 평균(Σ응시÷인원)
                 "dwell_sum_sec": win["dwell_sum"],   # 이 구간 시청시간 합. 서버 롤업(Σ합÷Σ인원)의 재료
-                "dwell_distribution": win["dwell_dist"],  # 1~2초/2초+ 응시자 수
+                "dwell_distribution": win["dwell_dist"],  # 1~2 / 2~3 / 3~4 / 4초+ 응시자 수
             },
         }
 
@@ -63,7 +63,7 @@ class SummaryAggregator:
         # 시청시간 분포: 각 응시자의 총 시청시간(facing_sec)을 1~2초/2초+ 로 분류해 인원을 센다.
         dwell_dist = {b: 0 for b in DWELL_BUCKETS}
         for s in gazers:
-            dwell_dist[dwell_bucket(s.facing_sec, self.settings.gaze_grade_dwell_sec)] += 1
+            dwell_dist[dwell_bucket(s.facing_sec)] += 1
         return {
             "ots": len(confirmed),
             "lts": len(gazers),

@@ -88,7 +88,7 @@ board_id=MEDIA_001
   "attention": {
     "avg_dwell_sec": 2.4,
     "dwell_sum_sec": 4.8,
-    "dwell_distribution": { "1_to_2s": 6, "over_2s": 3 }
+    "dwell_distribution": { "1_to_2s": 6, "2_to_3s": 6, "3_to_4s": 6, "over_4s": 3 }
   }
 }
 ```

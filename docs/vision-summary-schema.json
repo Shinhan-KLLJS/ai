@@ -26,11 +26,13 @@
         "dwell_sum_sec": { "type": "number", "minimum": 0 },
         "dwell_distribution": {
           "type": "object",
-          "required": ["1_to_2s", "over_2s"],
+          "required": ["1_to_2s", "2_to_3s", "3_to_4s", "over_4s"],
           "additionalProperties": false,
           "properties": {
             "1_to_2s": { "type": "integer", "minimum": 0 },
-            "over_2s": { "type": "integer", "minimum": 0 }
+            "2_to_3s": { "type": "integer", "minimum": 0 },
+            "3_to_4s": { "type": "integer", "minimum": 0 },
+            "over_4s": { "type": "integer", "minimum": 0 }
           }
         }
       }

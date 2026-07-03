@@ -39,7 +39,7 @@ def sample_summary(settings):
         "attention": {
             "avg_dwell_sec": 2.0,
             "dwell_sum_sec": 2.0,
-            "dwell_distribution": {"1_to_2s": 0, "over_2s": 1},
+            "dwell_distribution": {"1_to_2s": 0, "2_to_3s": 1, "3_to_4s": 0, "over_4s": 0},
         },
     }
 

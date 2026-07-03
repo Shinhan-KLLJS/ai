@@ -4,9 +4,10 @@ from collections import defaultdict
 from loovi_vision.enrich.gaze import facing_from_angles
 
 # 시청시간 분포 버킷. Attention 대상은 LTS(누적 응시 >= lts_min=1초) 인원뿐이라
-# "1초 미만"은 정의상 항상 0 → 제외하고 [1~2초 / 2초 이상] 2구간으로 확정했다.
+# "1초 미만"은 정의상 항상 0 → 제외하고 [1~2 / 2~3 / 3~4 / 4초 이상] 4구간으로 세분화한다.
+# 버킷 경계(2·3·4초)는 라벨(1_to_2s 등)과 1:1로 묶인 고정 정수초라 별도 파라미터로 두지 않는다.
 # realtime/summary.py와 공유하는 단일 정의(라벨 드리프트 방지).
-DWELL_BUCKETS = ("1_to_2s", "over_2s")
+DWELL_BUCKETS = ("1_to_2s", "2_to_3s", "3_to_4s", "over_4s")
 
 
 def load_pose_records(poses_path):
@@ -39,11 +40,15 @@ def grade_of(duration, settings):
     return "glance"
 
 
-def dwell_bucket(total_sec, dwell_sec):
+def dwell_bucket(total_sec):
     # 개인의 누적 시청 시간을 리포트 구간으로 분류. Attention 대상은 LTS 인원(누적 >= lts_min=1초)뿐이라
-    # "1초 미만" 버킷은 정의상 항상 0 → 제거하고 [1~2초 / 2초 이상] 2구간으로 확정한다.
-    if total_sec >= dwell_sec:
-        return "over_2s"
+    # "1초 미만" 버킷은 정의상 항상 0 → 제거하고 [1~2 / 2~3 / 3~4 / 4초 이상] 4구간으로 나눈다.
+    if total_sec >= 4.0:
+        return "over_4s"
+    if total_sec >= 3.0:
+        return "3_to_4s"
+    if total_sec >= 2.0:
+        return "2_to_3s"
     return "1_to_2s"
 
 
@@ -121,7 +126,7 @@ def analyze_gaze_sessions(poses_path, settings, center_fn=None):
     lts_totals = [p["total_gaze_sec"] for p in per_track if p["total_gaze_sec"] >= lts_min]
     dwell_distribution = {b: 0 for b in DWELL_BUCKETS}
     for total in lts_totals:
-        dwell_distribution[dwell_bucket(total, settings.gaze_grade_dwell_sec)] += 1
+        dwell_distribution[dwell_bucket(total)] += 1
     return {
         "gaze_total_sessions": len(all_sessions),          # 전체 응시 구간 수 (참고)
         "gazers_count": len(per_track),                    # 한 번이라도 응시한 인원 (참고)
