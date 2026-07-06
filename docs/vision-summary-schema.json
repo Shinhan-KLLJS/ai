@@ -26,13 +26,13 @@
         "dwell_sum_sec": { "type": "number", "minimum": 0 },
         "dwell_distribution": {
           "type": "object",
-          "required": ["1_to_2s", "2_to_3s", "3_to_4s", "over_4s"],
+          "required": ["1_to_under_2s", "2_to_under_3s", "3_to_under_4s", "4s_and_over"],
           "additionalProperties": false,
           "properties": {
-            "1_to_2s": { "type": "integer", "minimum": 0 },
-            "2_to_3s": { "type": "integer", "minimum": 0 },
-            "3_to_4s": { "type": "integer", "minimum": 0 },
-            "over_4s": { "type": "integer", "minimum": 0 }
+            "1_to_under_2s": { "type": "integer", "minimum": 0 },
+            "2_to_under_3s": { "type": "integer", "minimum": 0 },
+            "3_to_under_4s": { "type": "integer", "minimum": 0 },
+            "4s_and_over": { "type": "integer", "minimum": 0 }
           }
         }
       }
@@ -53,22 +53,22 @@
         "60plus": { "type": "integer", "minimum": 0 }
       }
     },
-    "demographics": {
+    "genderDemographics": {
       "type": "object",
-      "required": ["gender", "male_age", "female_age"],
+      "required": ["count", "age"],
       "additionalProperties": false,
       "properties": {
-        "gender": {
-          "type": "object",
-          "required": ["male", "female"],
-          "additionalProperties": false,
-          "properties": {
-            "male": { "type": "integer", "minimum": 0 },
-            "female": { "type": "integer", "minimum": 0 }
-          }
-        },
-        "male_age": { "$ref": "#/definitions/ageBuckets" },
-        "female_age": { "$ref": "#/definitions/ageBuckets" }
+        "count": { "type": "integer", "minimum": 0 },
+        "age": { "$ref": "#/definitions/ageBuckets" }
+      }
+    },
+    "demographics": {
+      "type": "object",
+      "required": ["male", "female"],
+      "additionalProperties": false,
+      "properties": {
+        "male": { "$ref": "#/definitions/genderDemographics" },
+        "female": { "$ref": "#/definitions/genderDemographics" }
       }
     }
   }

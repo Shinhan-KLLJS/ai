@@ -92,10 +92,13 @@ class SummaryAggregator:
         }
 
     def _demo_diff(self, prev, cur):
-        # 성별/연령 분포를 버킷별로 diff. 나이·성별 재판정으로 버킷이 바뀌면 음수가 날 수 있어 clamp 0.
-        def diff(key):
-            return {k: max(0, cur[key][k] - prev[key][k]) for k in cur[key]}
-        return {"gender": diff("gender"), "male_age": diff("male_age"), "female_age": diff("female_age")}
+        # 성별별 count·연령버킷을 각각 diff. 나이·성별 재판정으로 버킷이 바뀌면 음수가 날 수 있어 clamp 0.
+        def diff(g):   # 성별 하나(male/female): count + age 버킷 diff (v2 중첩 구조)
+            return {
+                "count": max(0, cur[g]["count"] - prev[g]["count"]),
+                "age": {k: max(0, cur[g]["age"][k] - prev[g]["age"][k]) for k in cur[g]["age"]},
+            }
+        return {"male": diff("male"), "female": diff("female")}
 
     def _zero(self):
         # 최초 구간의 diff 기준(모든 누적값 0). 첫 build 는 "0~현재"가 곧 첫 구간이 된다.

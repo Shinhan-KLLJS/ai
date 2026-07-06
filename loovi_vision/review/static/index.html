@@ -546,10 +546,10 @@
       // 시청시간 분포는 LTS 인원 기준(1인 1대표값): 1~2 / 2~3 / 3~4 / 4초+ (LTS >=1초라 under_1s 제외).
       const dist = manifest.dwell_distribution || {};
       const gEntries = [
-        ["1~2초", dist["1_to_2s"] || 0],
-        ["2~3초", dist["2_to_3s"] || 0],
-        ["3~4초", dist["3_to_4s"] || 0],
-        ["4초+", dist["over_4s"] || 0],
+        ["1~2초", dist["1_to_under_2s"] || 0],
+        ["2~3초", dist["2_to_under_3s"] || 0],
+        ["3~4초", dist["3_to_under_4s"] || 0],
+        ["4초+", dist["4s_and_over"] || 0],
       ];
       const gTotal = gEntries.reduce((sum, [, v]) => sum + v, 0);
       els.gradeDist.innerHTML = gTotal

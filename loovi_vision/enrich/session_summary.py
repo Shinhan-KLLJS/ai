@@ -11,28 +11,27 @@ SERVER_AGE_KEYS = {
 
 
 def empty_age_dist():
-    # 연령대별 0으로 초기화한 딕셔너리(서버 스키마 키). male_age/female_age 공통.
+    # 연령대별 0으로 초기화한 딕셔너리(서버 스키마 키). 성별별 age 블록 공통.
     return {key: 0 for key in SERVER_AGE_KEYS.values()}
 
 
 def demographics_of(states):
-    # 주어진 track 상태 묶음의 성별/연령 분포를 서버 스키마 키로 집계한다.
+    # 주어진 track 상태 묶음의 성별/연령 분포를 서버 스키마(v2) 키로 집계한다.
     # OTS(얼굴 잡힌 통행자)·LTS(응시자) 어느 쪽이든 같은 함수로 쓴다.
-    # 연령은 성별로 나눠(male_age/female_age) 담는다 → 성별 미상이면 연령에도 넣지 않는다.
-    gender = {"male": 0, "female": 0}
-    male_age = empty_age_dist()
-    female_age = empty_age_dist()
+    # v2 구조: 성별별로 {count, age} 를 중첩한다 → 성별 미상이면 어느 쪽에도 넣지 않는다.
+    count = {"male": 0, "female": 0}
+    age = {"male": empty_age_dist(), "female": empty_age_dist()}
     for state in states:
         label = gender_label(state)
         if label is None:
             continue                       # 성별 미상 → 성별·연령 어느 쪽에도 집계하지 않음
-        gender[label] += 1
+        count[label] += 1
         bucket = age_bucket(state.age)
         if bucket is None:
-            continue                       # 연령 미상 → 성별만 집계(합 ≤ gender)
-        age_dist = male_age if label == "male" else female_age
-        age_dist[SERVER_AGE_KEYS[bucket]] += 1
-    return {"gender": gender, "male_age": male_age, "female_age": female_age}
+            continue                       # 연령 미상 → 성별만 집계(count ≥ age 합)
+        age[label][SERVER_AGE_KEYS[bucket]] += 1
+    # v2: {"male": {"count": N, "age": {...}}, "female": {"count": N, "age": {...}}}
+    return {g: {"count": count[g], "age": age[g]} for g in ("male", "female")}
 
 
 def age_bucket(age):

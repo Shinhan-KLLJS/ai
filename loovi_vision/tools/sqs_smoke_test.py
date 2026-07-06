@@ -25,7 +25,11 @@ def sample_summary(settings):
     # 실제 파이프라인 출력과 동일한 구조의 더미 summary(전송 경로 검증용).
     male_age = empty_age_dist()
     male_age["20s"] = 1
-    demo = {"gender": {"male": 1, "female": 0}, "male_age": male_age, "female_age": empty_age_dist()}
+    # v2: 성별별 {count, age} 중첩 구조
+    demo = {
+        "male": {"count": 1, "age": male_age},
+        "female": {"count": 0, "age": empty_age_dist()},
+    }
     return {
         "device_id": settings.rt_device_id,
         "board_id": settings.board_id,
@@ -39,7 +43,7 @@ def sample_summary(settings):
         "attention": {
             "avg_dwell_sec": 2.0,
             "dwell_sum_sec": 2.0,
-            "dwell_distribution": {"1_to_2s": 0, "2_to_3s": 1, "3_to_4s": 0, "over_4s": 0},
+            "dwell_distribution": {"1_to_under_2s": 0, "2_to_under_3s": 1, "3_to_under_4s": 0, "4s_and_over": 0},
         },
     }
 

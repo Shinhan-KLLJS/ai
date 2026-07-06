@@ -5,9 +5,9 @@ from loovi_vision.enrich.gaze import facing_from_angles
 
 # 시청시간 분포 버킷. Attention 대상은 LTS(누적 응시 >= lts_min=1초) 인원뿐이라
 # "1초 미만"은 정의상 항상 0 → 제외하고 [1~2 / 2~3 / 3~4 / 4초 이상] 4구간으로 세분화한다.
-# 버킷 경계(2·3·4초)는 라벨(1_to_2s 등)과 1:1로 묶인 고정 정수초라 별도 파라미터로 두지 않는다.
-# realtime/summary.py와 공유하는 단일 정의(라벨 드리프트 방지).
-DWELL_BUCKETS = ("1_to_2s", "2_to_3s", "3_to_4s", "over_4s")
+# 버킷 경계(2·3·4초)는 라벨(1_to_under_2s 등)과 1:1로 묶인 고정 정수초라 별도 파라미터로 두지 않는다.
+# realtime/summary.py와 공유하는 단일 정의(라벨 드리프트 방지). 키는 서버 스키마(v2) 표기.
+DWELL_BUCKETS = ("1_to_under_2s", "2_to_under_3s", "3_to_under_4s", "4s_and_over")
 
 
 def load_pose_records(poses_path):
@@ -44,12 +44,12 @@ def dwell_bucket(total_sec):
     # 개인의 누적 시청 시간을 리포트 구간으로 분류. Attention 대상은 LTS 인원(누적 >= lts_min=1초)뿐이라
     # "1초 미만" 버킷은 정의상 항상 0 → 제거하고 [1~2 / 2~3 / 3~4 / 4초 이상] 4구간으로 나눈다.
     if total_sec >= 4.0:
-        return "over_4s"
+        return "4s_and_over"
     if total_sec >= 3.0:
-        return "3_to_4s"
+        return "3_to_under_4s"
     if total_sec >= 2.0:
-        return "2_to_3s"
-    return "1_to_2s"
+        return "2_to_under_3s"
+    return "1_to_under_2s"
 
 
 def _sessions_for_track(records, settings, center_fn):

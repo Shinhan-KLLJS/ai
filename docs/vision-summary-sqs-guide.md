@@ -76,19 +76,17 @@ board_id=MEDIA_001
   "ots_count": 30,
   "lts_count": 9,
   "ots_demographics": {
-    "gender": { "male": 16, "female": 12 },
-    "male_age": { "under10": 0, "10s": 0, "20s": 4, "30s": 3, "40s": 2, "50s": 0, "60plus": 0 },
-    "female_age": { "under10": 0, "10s": 0, "20s": 4, "30s": 3, "40s": 2, "50s": 0, "60plus": 0 }
+    "male":   { "count": 16, "age": { "under10": 0, "10s": 0, "20s": 4, "30s": 3, "40s": 2, "50s": 0, "60plus": 0 } },
+    "female": { "count": 12, "age": { "under10": 0, "10s": 0, "20s": 4, "30s": 3, "40s": 2, "50s": 0, "60plus": 0 } }
   },
   "lts_demographics": {
-    "gender": { "male": 5, "female": 4 },
-    "male_age": { "under10": 0, "10s": 0, "20s": 4, "30s": 3, "40s": 2, "50s": 0, "60plus": 0 },
-    "female_age": { "under10": 0, "10s": 0, "20s": 4, "30s": 3, "40s": 2, "50s": 0, "60plus": 0 }
+    "male":   { "count": 5, "age": { "under10": 0, "10s": 0, "20s": 4, "30s": 3, "40s": 2, "50s": 0, "60plus": 0 } },
+    "female": { "count": 4, "age": { "under10": 0, "10s": 0, "20s": 4, "30s": 3, "40s": 2, "50s": 0, "60plus": 0 } }
   },
   "attention": {
     "avg_dwell_sec": 2.4,
     "dwell_sum_sec": 4.8,
-    "dwell_distribution": { "1_to_2s": 6, "2_to_3s": 6, "3_to_4s": 6, "over_4s": 3 }
+    "dwell_distribution": { "1_to_under_2s": 6, "2_to_under_3s": 6, "3_to_under_4s": 6, "4s_and_over": 3 }
   }
 }
 ```
@@ -98,7 +96,7 @@ board_id=MEDIA_001
 - **`timestamp`**: 반드시 **UTC**, ISO-8601 형식(`Z` 접미사). 로컬 타임존(KST) 그대로 보내면 안 됩니다.
 - **`interval_sec`**: 항상 5.0이 아닐 수 있습니다 — 마지막 window가 짧게 끊기는 경우 실제 길이를 그대로 넣으세요.
 - **`seq`**: 이 값은 **summary 메시지 전용 카운터**입니다(1부터 시작, 매 window마다 +1). 프로그램이 재시작되면 1부터 다시 시작해도 됩니다 — 백엔드는 `device_id + seq`가 아니라 `device_id + timestamp` 기준으로 순서를 판단하니, seq는 "중복 전송 감지용" 보조 값 정도로 취급하세요.
-- **`ots_demographics` / `lts_demographics`의 `gender` 합**: 반드시 `male + female ≤ ots_count`(또는 `lts_count`) — 얼굴이 안 잡힌 사람은 성별/연령 집계에서 빠지기 때문에 부등호입니다. 합이 count를 넘는 경우는 버그이니 보내기 전에 확인하세요.
+- **`ots_demographics` / `lts_demographics`의 성별 인원 합**: 반드시 `male.count + female.count ≤ ots_count`(또는 `lts_count`) — 얼굴이 안 잡힌 사람은 성별/연령 집계에서 빠지기 때문에 부등호입니다. 각 성별의 `age` 버킷 합도 해당 `count` 이하입니다(연령 미상 허용). 합이 count를 넘는 경우는 버그이니 보내기 전에 확인하세요.
 - **필드 이름의 숫자 시작 키** (`10s`, `20s` 등): JSON 키라서 문제없지만, 언어에 따라 다루는 방식이 다를 수 있으니 각별히 신경 써서 그대로 사용하세요.
 
 ## 6. 스키마 자체 검증 (보내기 전에 꼭 해보세요)
