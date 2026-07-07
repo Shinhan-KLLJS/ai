@@ -42,3 +42,12 @@ def render_display_frame(frame, detections, settings, det_to_track, batch, track
     return draw(frame.copy(), detections, stats, settings, det_to_track,
                 overlay["face_boxes"], overlay["face_labels"], overlay["attended_ids"],
                 overlay["gazing_ids"], overlay["poses"], overlay["gaze_secs"])
+
+
+def render_from_snapshot(frame, snapshot, settings):
+    # DetectionWorker가 발행한 스냅샷(detections/stats/overlay 미리 계산됨)으로 오버레이 프레임을 만든다.
+    # 원본 frame은 raw 저장을 위해 보존해야 하므로 copy 위에 그린다.
+    o = snapshot["overlay"]
+    return draw(frame.copy(), snapshot["detections"], snapshot["stats"], settings,
+                snapshot["det_to_track"], o["face_boxes"], o["face_labels"],
+                o["attended_ids"], o["gazing_ids"], o["poses"], o["gaze_secs"])

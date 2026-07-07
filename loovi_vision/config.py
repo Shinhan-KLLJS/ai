@@ -69,15 +69,27 @@ class Settings:
         self.camera_backend = cv2.CAP_DSHOW
         self.frame_w = int(get(config, "camera.width", 1280))
         self.frame_h = int(get(config, "camera.height", 720))
+        # 웹캠 픽셀 포맷/프레임레이트 강제. 내장 USB 웹캠은 무압축(YUY2)이면 1080p가 대역폭 한계로
+        # ~5fps로 떨어지므로 MJPG 권장. fourcc="" 면 강제 안 함(카메라 기본값), fps<=0 이면 fps 강제 안 함.
+        # Iriun 같은 가상 카메라는 이미 압축 스트림이라, 문제가 생기면 fourcc:"" 로 두면 된다.
+        self.camera_fourcc = str(get(config, "camera.fourcc", "MJPG"))
+        self.camera_fps = float(get(config, "camera.fps", 30.0))
 
         # 처리/저장 옵션: process_every_n은 추론 빈도, batch_sec은 집계 window다.
         self.enable_cuda = bool(get(config, "runtime.enable_cuda", True))
+        # 웹캠 캡처를 별도 스레드로 분리(최신 프레임만 소비)해 라이브 화면 버벅임을 없앤다.
+        # 영상 파일 입력에는 적용되지 않는다(프레임 순차 재생 유지).
+        self.threaded_capture = bool(get(config, "runtime.threaded_capture", True))
         self.process_every_n = int(get(config, "runtime.process_every_n", 2))
         self.batch_sec = int(get(config, "runtime.batch_sec", 15))
         self.show_window = bool(get(config, "runtime.show_window", True))
         self.save_frame_samples = bool(get(config, "runtime.save_frame_samples", False))
         self.record_video = bool(get(config, "runtime.record_video", False))
         self.record_overlay = bool(get(config, "runtime.record_overlay", True))
+        # 영상 인코딩을 별도 스레드로 분리해 메인 루프(=화면 표시) 속도를 높인다.
+        self.threaded_writer = bool(get(config, "runtime.threaded_writer", True))
+        # 워커 단계별 처리시간(검출/추적/얼굴/gaze ms)을 주기적으로 콘솔에 출력한다(성능 진단).
+        self.perf_log = bool(get(config, "runtime.perf_log", True))
         self.video_dir = Path(get(config, "runtime.video_dir", "data/videos"))
         self.session_dir = Path(get(config, "runtime.session_dir", "data/sessions"))
         self.video_fps = float(get(config, "runtime.video_fps", 30.0))
@@ -112,6 +124,9 @@ class Settings:
         # track당 얼굴 검출 주기(처리 프레임 기준)와 너무 작은 crop 컷오프.
         self.face_run_every_n = int(get(config, "face.run_every_n_frames", 3))
         self.face_min_crop_size = int(get(config, "face.min_crop_size", 48))
+        # 한 프레임에 얼굴 분석을 돌릴 최대 인원(가까운=큰 crop 우선). 0이면 무제한(기존 동작).
+        # 사람이 많을 때 워커 iteration 폭주를 막아 표시 FPS를 지킨다.
+        self.face_max_per_frame = int(get(config, "face.max_per_frame", 0))
         det_size = get(config, "face.det_size", [640, 640])
         self.face_det_size = (int(det_size[0]), int(det_size[1]))
 

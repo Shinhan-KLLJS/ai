@@ -4,6 +4,9 @@ from datetime import datetime
 
 import cv2
 
+from loovi_vision.pipelines.threaded_camera import ThreadedCamera
+from loovi_vision.pipelines.threaded_writer import ThreadedVideoWriter
+
 
 def make_run_id(settings):
     # JSONL, 영상, session 메타파일을 같은 basename으로 묶기 위한 실행 ID.
@@ -52,9 +55,31 @@ def open_capture(settings):
         cap = cv2.VideoCapture(settings.camera_video)
         return cap, float(cap.get(cv2.CAP_PROP_FPS) or settings.video_fps)
     cap = cv2.VideoCapture(settings.camera_id, settings.camera_backend)
+    # 픽셀 포맷 강제(예: MJPG). 무압축으로 열리면 1080p가 대역폭 한계로 프레임 공급이 급락한다.
+    # FOURCC는 해상도보다 먼저 지정해야 적용된다. 빈 값이면 강제하지 않음(카메라 기본값 사용).
+    if len(settings.camera_fourcc) == 4:
+        cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*settings.camera_fourcc))
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, settings.frame_w)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, settings.frame_h)
+    if settings.camera_fps > 0:
+        cap.set(cv2.CAP_PROP_FPS, settings.camera_fps)    # 프레임레이트 요청(카메라가 지원하면 협상됨)
+    # 내부 버퍼를 최소화해 최신 프레임 지연을 줄인다(백엔드가 무시할 수 있어 스레드 캡처와 병행).
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    _print_camera_mode(settings, cap)                     # 실제 협상된 해상도/FPS/포맷 확인
+    if settings.threaded_capture:
+        # 웹캠은 캡처를 별도 스레드로 분리해 추론 속도와 화면 표시를 디커플링한다(라이브 버벅임 제거).
+        cap = ThreadedCamera(cap)
     return cap, 0.0
+
+
+def _print_camera_mode(settings, cap):
+    # 실제로 협상된 해상도/FPS/픽셀포맷을 찍어 MJPG·30fps 적용 여부를 확인한다(프레임 공급 진단).
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv2.CAP_PROP_FPS)
+    code = int(cap.get(cv2.CAP_PROP_FOURCC))
+    fourcc = "".join(chr((code >> 8 * i) & 0xFF) for i in range(4)).strip()
+    print(f"  camera[{settings.camera_id}] {w}x{h} @ {fps:.0f}fps [{fourcc}]")
 
 
 def pace_realtime(frame_id, source_fps, run_started_at):
@@ -74,6 +99,9 @@ def open_video_writer(settings, path, frame_shape):
     writer = cv2.VideoWriter(str(path), fourcc, settings.video_fps, (width, height))
     if not writer.isOpened():
         raise RuntimeError(f"Cannot open video writer: {path}")
+    if settings.threaded_writer:
+        # 인코딩을 백그라운드 스레드로 분리해 메인 루프(=화면 표시) 속도를 높인다.
+        writer = ThreadedVideoWriter(writer)
     return writer
 
 

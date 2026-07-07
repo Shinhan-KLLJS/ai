@@ -101,11 +101,17 @@ def draw(frame, detections, stats, settings, det_to_track, face_boxes=None, face
         f"Model   : {settings.person_onnx.stem}",
     ]
 
-    overlay = frame.copy()
     # face 비활성 시에는 기존과 픽셀 동일하게 158 고정 (회귀 방지).
     box_bottom = 30 + 20 * len(lines) if "attended" in stats else 158
-    cv2.rectangle(overlay, (8, 8), (370, box_bottom), (10, 10, 22), -1)
-    cv2.addWeighted(overlay, 0.78, frame, 0.22, 0, frame)
+    # HUD 반투명 배경: 예전엔 1080p 전체를 복사·블렌딩했지만, 박스 밖은 블렌딩해도 원본과 동일하다
+    # (overlay==frame → 0.78·f+0.22·f=f). 그래서 HUD ROI만 블렌딩해 픽셀 동일 결과를 훨씬 싸게 얻는다.
+    x0, y0 = 8, 8
+    # cv2.rectangle(-1)은 끝점을 포함하므로 slice 끝을 +1 해야 예전 결과와 픽셀 동일하다.
+    x1, y1 = min(371, frame.shape[1]), min(box_bottom + 1, frame_h)
+    roi = frame[y0:y1, x0:x1]
+    dark = roi.copy()
+    dark[:] = (10, 10, 22)
+    cv2.addWeighted(dark, 0.78, roi, 0.22, 0, roi)  # roi는 frame의 view라 결과가 그대로 반영됨
     for i, text in enumerate(lines):
         cv2.putText(frame, text, (18, 30 + i * 20), cv2.FONT_HERSHEY_SIMPLEX, 0.48, (230, 230, 255), 1)
     return frame

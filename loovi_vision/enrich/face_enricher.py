@@ -31,9 +31,20 @@ class FaceEnricher:
             return None, 0, 0
         return frame[y1:y2, x1:x2], x1, y1
 
+    def _face_allowed(self, detections):
+        # face.max_per_frame>0 이면 이번 프레임에 얼굴 분석을 돌릴 det 인덱스를 crop 면적 상위 K개로 제한.
+        # 사람이 많을 때 얼굴 모델 호출 폭주를 막는다(가까운=큰 사람 우선). 0이면 무제한.
+        cap = self.settings.face_max_per_frame
+        if cap <= 0 or len(detections) <= cap:
+            return None
+        area = lambda d: d["bbox"][2] * d["bbox"][3]
+        order = sorted(range(len(detections)), key=lambda i: area(detections[i]), reverse=True)
+        return set(order[:cap])
+
     def process(self, frame, detections, det_to_track, frame_id, timestamp_sec=0.0):
         # 한 프레임 처리: (이번 프레임에 보인 track, 얼굴이 보인 track) 집합 반환.
         seen, faced = set(), set()
+        allowed = self._face_allowed(detections)   # None이면 전원, 아니면 상위 K det 인덱스
         for det_idx, det in enumerate(detections):
             track_id = det_to_track.get(det_idx)
             if track_id is None:
@@ -42,6 +53,8 @@ class FaceEnricher:
             state = self.registry.observe(track_id, frame_id)  # frames_seen += 1 (항상)
             if not self._should_run(state):
                 continue
+            if allowed is not None and det_idx not in allowed:
+                continue  # 상한 초과: 이 프레임에선 이 사람 얼굴 분석 건너뜀(seen 집계엔 이미 포함)
             crop, off_x, off_y = self._person_crop(frame, det["bbox"])
             if crop is None:
                 continue
