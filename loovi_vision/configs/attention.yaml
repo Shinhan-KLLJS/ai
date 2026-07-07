@@ -1,19 +1,16 @@
 experiment:
-  name: person_only
+  name: attention
   board_id: board_gangnam_01
   output_dir: data/jsonl
-  output_suffix: person_only
-
-# 순수 person-only baseline: 사람 검출 + 추적 + 로컬 JSONL 기록만 수행한다.
-# 얼굴(성별/연령) / gaze(주목도) / 실시간 SQS 전송이 필요하면 attention.yaml 을 쓴다.
+  output_suffix: attention
 
 models:
   person_onnx: models/yolo11l.onnx
-  face_pack: buffalo_l       # face.enable=true 로 켜야만 로드됨 (baseline 에서는 미사용)
-  headpose_onnx: models/dmhead.onnx   # gaze.enable=true 로 켜야만 로드됨 (baseline 에서는 미사용)
+  face_pack: buffalo_l       # insightface 모델 팩 (검출 + 성별/연령)
+  headpose_onnx: models/dmhead.onnx   # DMHead ONNX (head pose, gaze 2차)
 
 camera:
-  id: 1           # id=0 내장 웹캠 / id=1 Iriun Webcam
+  id: 0           # id=0 내장 웹캠 / id=1 Iriun Webcam
   width: 1920
   height: 1080
   fourcc: MJPG    # 픽셀 포맷 강제. 내장 웹캠은 무압축(YUY2)이면 1080p가 ~5fps로 떨어져 MJPG 권장.
@@ -31,7 +28,7 @@ runtime:
   record_video: true
   record_overlay: true
   threaded_writer: true    # 영상 인코딩을 별도 스레드로 분리해 메인 루프(화면 표시) 속도 향상
-  perf_log: true           # 워커 단계별 처리시간(detect/track ms)+FPS를 2초마다 콘솔 출력(진단)
+  perf_log: true           # 워커 단계별 처리시간(detect/track/face/gaze ms)+FPS를 2초마다 콘솔 출력(진단)
   video_dir: data/videos
   session_dir: data/sessions
   video_fps: 30
@@ -60,14 +57,15 @@ tracker:
   custom_match_max_dist: 260  # custom fallback tracker의 중심점 매칭 최대 거리(px)
 
 face:
-  enable: false              # baseline 은 얼굴 분석 없음. 켜려면 attention.yaml 참고
+  enable: true               # false 로 바꾸면 얼굴 분석 없이 person-only 동작 (person_only.yaml 과 동일)
   conf_min: 0.5              # 이 미만 얼굴은 무시
   run_every_n_frames: 2      # track 당 얼굴 검출/포즈 주기 (작을수록 pose 샘플 증가)
   min_crop_size: 48          # 너무 작은 사람 crop 은 얼굴 검출 건너뜀
-  det_size: [640, 640]       # insightface 검출 입력 크기
+  det_size: [640, 640]       # insightface 검출 입력 크기. [320,320] 로 낮추면 얼굴 검출이 크게 빨라짐(먼 얼굴은 놓칠 수 있음)
+  max_per_frame: 0           # 한 프레임에 얼굴 분석할 최대 인원(0=무제한). 사람 많을 때 3~4로 제한하면 표시 FPS 방어
 
 gaze:
-  enable: false              # baseline 은 gaze 분석 없음. 켜려면 attention.yaml 참고
+  enable: true               # false 면 head pose(gaze) 없이 얼굴(성별/연령)만 분석
   # 화면 향함 판정 (gaze proxy)
   yaw_center: 0.0            # [캘리브레이션 실측] 정면 기준 yaw
   pitch_center: 0.0          # [캘리브레이션 실측] 정면 기준 pitch
@@ -88,7 +86,7 @@ gaze:
   poses_dir: data/poses
 
 realtime:
-  enable: false              # baseline 은 로컬 기록만(SQS 전송 없음). 켜려면 attention.yaml 참고
+  enable: true               # false 면 SQS 전송 없이 로컬 기록만
   device_id: loovi-cam-01
   sqs_queue_url: ""          # 빈 값이면 환경변수 LOOVI_SQS_QUEUE_URL 사용
   sqs_region: ""             # AWS 리전(예: ap-northeast-2). 빈 값이면 AWS_REGION/AWS_DEFAULT_REGION 환경변수 사용
