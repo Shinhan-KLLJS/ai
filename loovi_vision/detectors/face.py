@@ -1,6 +1,14 @@
 import numpy as np
 
-from loovi_vision.runtime import onnx_providers
+from loovi_vision.runtime import onnx_providers, provider_options
+
+
+def _actual_provider(model):
+    # insightface 모델(SCRFD/genderage)의 내부 onnxruntime 세션이 실제로 잡은 provider를 짧게 반환한다.
+    session = getattr(model, "session", None)
+    if session is None or not hasattr(session, "get_providers"):
+        return "unknown"
+    return session.get_providers()[0].replace("ExecutionProvider", "")
 
 
 class FaceAnalyzer:
@@ -14,25 +22,40 @@ class FaceAnalyzer:
                 "insightface가 설치되어 있지 않습니다. face.enable=true 를 쓰려면 설치하세요:\n"
                 "    pip install -r requirements.txt\n"
                 "    pip uninstall -y onnxruntime   # GPU 충돌 방지 (CPU 버전 제거)\n"
-                "얼굴 분석 없이 기존 동작만 원하면 "
-                "loovi_vision/configs/person_only.yaml 에서 face.enable: false 로 두세요."
+                "얼굴 분석 없이 사람 검출만 원하면 "
+                "person_only.yaml 을 쓰거나 config의 face.enable: false 로 두세요."
             ) from exc
 
         self.settings = settings
         self.conf_min = settings.face_conf_min
         providers = onnx_providers(settings.enable_cuda)
         # detection + genderage만 로드해 recognition/landmark 로딩 비용을 줄인다.
-        self.app = FaceAnalysis(
-            name=settings.face_pack,
-            allowed_modules=["detection", "genderage"],
-            providers=providers,
-        )
+        # provider_options로 CUDA conv 탐색을 HEURISTIC으로 지정(첫 추론 스파이크/지연 변동 제거).
+        try:
+            self.app = FaceAnalysis(
+                name=settings.face_pack,
+                allowed_modules=["detection", "genderage"],
+                providers=providers,
+                provider_options=provider_options(providers),
+            )
+        except TypeError:
+            # 구버전 insightface: provider_options 인자 미지원 → providers만으로 폴백.
+            self.app = FaceAnalysis(
+                name=settings.face_pack,
+                allowed_modules=["detection", "genderage"],
+                providers=providers,
+            )
         ctx_id = 0 if settings.enable_cuda else -1
         self.app.prepare(ctx_id=ctx_id, det_thresh=self.conf_min, det_size=settings.face_det_size)
         self.det_model = self.app.det_model
         self.genderage = self.app.models.get("genderage")
-        label = providers[0].replace("ExecutionProvider", "")
-        print(f"  OK FaceAnalyzer [{settings.face_pack}] [{label}]")
+        # 요청 provider가 아니라 각 세션이 '실제로' 잡은 provider를 찍는다.
+        # insightface가 조용히 CPU로 폴백하면 여기서 CPUExecutionProvider로 드러난다(성능 진단 핵심).
+        det_ep = _actual_provider(self.det_model)
+        ga_ep = _actual_provider(self.genderage)
+        print(f"  OK FaceAnalyzer [{settings.face_pack}] det:{det_ep} genderage:{ga_ep}")
+        if settings.enable_cuda and "CUDA" not in det_ep:
+            print("  WARNING: 얼굴 검출이 GPU가 아니라 CPU에서 돕니다 -> 느림. onnxruntime-gpu 설치/충돌 확인 필요")
 
     def detect(self, crop):
         # 사람 crop에서 얼굴 목록 반환: [{bbox:(x,y,w,h), conf, area, kps}]

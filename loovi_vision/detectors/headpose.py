@@ -3,7 +3,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from loovi_vision.runtime import onnx_providers, provider_label
+from loovi_vision.runtime import onnx_providers, provider_label, provider_options
 
 
 class DMHeadPose:
@@ -25,10 +25,12 @@ class DMHeadPose:
             )
         opts = ort.SessionOptions()
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        providers = onnx_providers(settings.enable_cuda)
         self.session = ort.InferenceSession(
             str(self.model_path),
             sess_options=opts,
-            providers=onnx_providers(settings.enable_cuda),
+            providers=providers,
+            provider_options=provider_options(providers),
         )
         self.input_name = self.session.get_inputs()[0].name
         print(f"  OK DMHeadPose [{self.model_path.stem}] [{provider_label(self.session)}]")
