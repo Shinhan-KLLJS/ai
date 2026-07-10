@@ -21,9 +21,15 @@ def output_path(settings, run_id):
 
 
 def video_path(settings, run_id):
-    # 리뷰용 오버레이 또는 원본 영상을 저장할 MP4 파일 경로.
+    # 리뷰용 오버레이(인식결과) 영상을 저장할 MP4 파일 경로.
     settings.video_dir.mkdir(parents=True, exist_ok=True)
     return settings.video_dir / f"{run_id}.mp4"
+
+
+def raw_video_path(settings, run_id):
+    # 원본(무보정) 영상을 저장할 MP4 파일 경로. 오버레이와 겹치지 않게 _raw 접미사를 붙인다.
+    settings.video_dir.mkdir(parents=True, exist_ok=True)
+    return settings.video_dir / f"{run_id}_raw.mp4"
 
 
 def session_path(settings, run_id):
@@ -105,8 +111,9 @@ def open_video_writer(settings, path, frame_shape):
     return writer
 
 
-def build_manifest(settings, run_id, out_path, rec_path, started_text):
+def build_manifest(settings, run_id, out_path, overlay_path, raw_path, started_text):
     # 실행 설정과 산출물 경로를 담는 session manifest의 초기(running) 상태.
+    # video_path 는 리뷰가 재생하는 오버레이 영상, raw_video_path 는 원본 영상 경로.
     return {
         "run_id": run_id,
         "status": "running",
@@ -116,10 +123,12 @@ def build_manifest(settings, run_id, out_path, rec_path, started_text):
         "started_at": started_text,
         "ended_at": None,
         "jsonl_path": path_text(out_path),
-        "video_path": path_text(rec_path),
-        "video_kind": "overlay" if settings.record_overlay else "raw",
+        "video_path": path_text(overlay_path),
+        "raw_video_path": path_text(raw_path),
+        "video_kind": "overlay" if overlay_path else ("raw" if raw_path else None),
         "record_video": settings.record_video,
         "record_overlay": settings.record_overlay,
+        "record_raw": settings.record_raw,
         "video_fps": settings.video_fps,
         "frame_width": settings.frame_w,
         "frame_height": settings.frame_h,

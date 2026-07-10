@@ -7,17 +7,20 @@ import cv2
 import numpy as np
 
 from loovi_vision.config import Settings, load_config
+from loovi_vision.config_validate import report_settings
 from loovi_vision.detectors import PersonDetector
 from loovi_vision.tracking import create_tracker
 from loovi_vision.pipelines.batch import PersonOnlyBatch
 from loovi_vision.pipelines.capture_loops import live_loop, sync_loop
 from loovi_vision.pipelines.detection_worker import DetectionWorker
 from loovi_vision.pipelines.gaze_runtime import attach_performance, build_gaze_runtime
+from loovi_vision.pipelines.recorders import Recorders
 from loovi_vision.pipelines.session_io import (
     build_manifest,
     make_run_id,
     open_capture,
     output_path,
+    raw_video_path,
     session_path,
     video_path,
     write_session_manifest,
@@ -52,9 +55,12 @@ def run(config_path="loovi_vision/configs/person_only.yaml"):
     run_started_at = time.time()
     run_started_text = datetime.fromtimestamp(run_started_at).strftime("%Y-%m-%d %H:%M:%S")
     out_path = output_path(settings, run_id)
-    rec_path = video_path(settings, run_id) if settings.record_video else None
+    # 저장 대상 결정: record_video가 켜져 있을 때만, 오버레이/원본을 각 옵션에 따라 개별 저장.
+    overlay_path = video_path(settings, run_id) if (settings.record_video and settings.record_overlay) else None
+    raw_path = raw_video_path(settings, run_id) if (settings.record_video and settings.record_raw) else None
+    recorders = Recorders(settings, overlay_path, raw_path)
     meta_path = session_path(settings, run_id)
-    manifest = build_manifest(settings, run_id, out_path, rec_path, run_started_text)
+    manifest = build_manifest(settings, run_id, out_path, overlay_path, raw_path, run_started_text)
     write_session_manifest(meta_path, manifest)
     # 라벨은 config의 experiment.name을 그대로 쓴다(예: attention / person_only).
     # 켜진 계층을 함께 표시해 어떤 모드로 도는지 로그만 봐도 알 수 있게 한다.
@@ -66,10 +72,15 @@ def run(config_path="loovi_vision/configs/person_only.yaml"):
     print(f"{label} stages: {stages}")
     print(f"{label} run_id: {run_id}")
     print(f"{label} output: {out_path}")
-    if rec_path:
-        print(f"{label} video: {rec_path}")
+    if overlay_path:
+        print(f"{label} video(overlay): {overlay_path}")
+    if raw_path:
+        print(f"{label} video(raw): {raw_path}")
     print(f"{label} session: {meta_path}")
     print(f"{label} model: {settings.person_onnx}")
+    # 파라미터 정합성 경고(예: gap_tol_sec 이 pose 샘플 주기보다 짧아 Attention 이 과소 집계되는 경우).
+    # 실행을 막지는 않는다. 성능 튜닝으로 enrich 주기를 올릴 때 조용히 깨지는 것을 막는 안전망이다.
+    report_settings(settings, label)
 
     detector = PersonDetector(settings)
 
@@ -110,14 +121,13 @@ def run(config_path="loovi_vision/configs/person_only.yaml"):
     live = settings.threaded_capture and not settings.camera_video
     print(f"{label} loop: {'live(threaded detection)' if live else 'sync'}")
     if live:
-        writer = live_loop(settings, cap, worker, rec_path, run_started_at)
+        live_loop(settings, cap, worker, recorders, run_started_at)
     else:
-        writer = sync_loop(settings, cap, worker, rec_path, run_started_at, source_fps)
+        sync_loop(settings, cap, worker, recorders, run_started_at, source_fps)
 
     # 종료 직전 남은 partial batch도 버리지 않고 저장한다.
     worker.flush_final(time.time() - run_started_at)
-    if writer:
-        writer.release()
+    recorders.release()   # 오버레이/원본 writer의 남은 프레임을 마저 인코딩하고 정리
     cap.release()
     cv2.destroyAllWindows()
 
@@ -128,8 +138,11 @@ def run(config_path="loovi_vision/configs/person_only.yaml"):
         manifest.update(build_summary(enricher.finalize(), settings.track_min_hits))
 
     # 성능 로그 + (gaze 활성 시) COLD 응시 분석/전송 지표를 manifest에 병합한다.
-    attach_performance(manifest, worker.proc_frames, max(1e-6, time.time() - run_started_at),
-                       worker.max_dt, gaze_runtime)
+    wall_sec = max(1e-6, time.time() - run_started_at)
+    attach_performance(manifest, worker.proc_frames, wall_sec, worker.max_dt, gaze_runtime)
+    # 트래킹 분리 진단: avg_fps는 이제 트래킹(detect+track) 갱신 빈도이고, enrich_fps는 얼굴/포즈 보강 빈도다.
+    manifest["performance"]["enrich_frames"] = worker.enrich_frames
+    manifest["performance"]["enrich_fps"] = round(worker.enrich_frames / wall_sec, 2)
 
     manifest["status"] = "completed"
     manifest["ended_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")

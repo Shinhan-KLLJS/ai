@@ -38,9 +38,11 @@ class DetectionWorker:
         self._running = False
         self._thread = None
         # 성능 지표(manifest 기록용). 워커 스레드(또는 동기 호출자)만 갱신한다.
-        self.proc_frames = 0
+        self.proc_frames = 0       # detect+track을 수행한 전체 프레임(=트래킹 갱신 빈도)
+        self.enrich_frames = 0     # 얼굴/포즈 보강까지 수행한 프레임(=보강 샘플 빈도)
         self.max_dt = 0.0
         self._last_proc_sec = 0.0
+        self._last_enrich_sec = -1.0e9   # 마지막 보강 시각(초). 첫 프레임은 무조건 보강되게 큰 음수로 시작.
 
     def process(self, frame, now_sec, frame_id):
         # 한 프레임 동기 처리: 검출/추적/보강/집계 후 렌더용 스냅샷을 발행한다.
@@ -51,10 +53,15 @@ class DetectionWorker:
         det_to_track = self.tracker.update(detections, frame)
         t2 = time.perf_counter()
         seen = faced = None
-        if self.enricher:
+        # 트래킹 분리: detect+track은 매 프레임, 무거운 얼굴/포즈 보강은 enrich_interval_sec 간격으로만 수행한다.
+        # (얼굴 비율/성별·나이·gaze는 본래 표본 통계라 샘플링해도 의미가 유지되고, 카운트/OTS는 매 프레임 트래커가 갱신한다.)
+        if self.enricher and self._enrich_due(now_sec):
             seen, faced = self.enricher.process(frame, detections, det_to_track, frame_id, now_sec)
+            self._last_enrich_sec = now_sec
+            self.enrich_frames += 1
         t3 = time.perf_counter()
         if self.gaze_runtime:
+            # summary(기본 5초) 타이밍만 매 프레임 확인(가벼움). 실제 pose 관측은 위 보강 프레임에서만 일어난다.
             self.gaze_runtime.tick(seen, now_sec)
         t4 = time.perf_counter()
         self.batch.add(frame_id, detections, self.tracker, det_to_track, seen, faced)
@@ -77,6 +84,11 @@ class DetectionWorker:
         dt = now_sec - self._last_proc_sec
         self.max_dt = max(self.max_dt, dt)
         self._last_proc_sec = now_sec
+
+    def _enrich_due(self, now_sec):
+        # enrich_interval_sec<=0 이면 매 프레임 보강(기존 동작). >0 이면 그 간격이 지났을 때만 보강한다.
+        interval = self.settings.enrich_interval_sec
+        return interval <= 0 or (now_sec - self._last_enrich_sec) >= interval
 
     def snapshot(self):
         with self._lock:

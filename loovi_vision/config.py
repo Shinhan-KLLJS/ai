@@ -81,11 +81,17 @@ class Settings:
         # 영상 파일 입력에는 적용되지 않는다(프레임 순차 재생 유지).
         self.threaded_capture = bool(get(config, "runtime.threaded_capture", True))
         self.process_every_n = int(get(config, "runtime.process_every_n", 2))
+        # 트래킹 분리: >0이면 detect+track은 매 프레임 돌리고 무거운 얼굴/포즈 보강만 이 간격(초)으로만 수행한다.
+        # 트래커가 얼굴 비용에 발목잡히지 않아 프레임 간격이 좁아지고 OTS/카운트 신뢰가 회복된다. 0이면 매 프레임(기존 동작).
+        self.enrich_interval_sec = float(get(config, "runtime.enrich_interval_sec", 0.0))
         self.batch_sec = int(get(config, "runtime.batch_sec", 15))
         self.show_window = bool(get(config, "runtime.show_window", True))
         self.save_frame_samples = bool(get(config, "runtime.save_frame_samples", False))
         self.record_video = bool(get(config, "runtime.record_video", False))
         self.record_overlay = bool(get(config, "runtime.record_overlay", True))
+        # 인식결과 오버레이 영상과 별개로 원본(무보정) 영상도 함께 저장할지 여부.
+        # true면 {run_id}_raw.mp4 로 원본을 추가 저장한다(오버레이 저장과 독립적으로 켤 수 있음).
+        self.record_raw = bool(get(config, "runtime.record_raw", False))
         # 영상 인코딩을 별도 스레드로 분리해 메인 루프(=화면 표시) 속도를 높인다.
         self.threaded_writer = bool(get(config, "runtime.threaded_writer", True))
         # 워커 단계별 처리시간(검출/추적/얼굴/gaze ms)을 주기적으로 콘솔에 출력한다(성능 진단).
@@ -117,6 +123,11 @@ class Settings:
         # 매칭 실패 track을 몇 프레임 유지 후 제거할지(공통), custom tracker의 최대 매칭 거리(px).
         self.track_max_missing = int(get(config, "tracker.max_missing", 45))
         self.custom_match_max_dist = float(get(config, "tracker.custom_match_max_dist", 260.0))
+        # body Re-ID(외형 임베딩): 켜면 끊긴 track 재결합으로 중복 통행 집계를 줄인다(BoT-SORT 전용).
+        # appearance_thresh 는 with_reid=true 일 때만 실제로 쓰인다. 커스텀 ONNX detector라 전용 ReID 모델 필요.
+        # 주의: detection 마다 외형 추론이 추가돼 느려진다(특히 CPU). 실험/현장 검증용.
+        self.track_with_reid = bool(get(config, "tracker.with_reid", False))
+        self.track_reid_model = str(get(config, "tracker.reid_model", "models/yolo26n-reid.onnx"))
 
         # face enrichment: enable=false면 기존 person_only와 100% 동일 동작.
         self.face_enable = bool(get(config, "face.enable", False))
@@ -129,6 +140,10 @@ class Settings:
         self.face_max_per_frame = int(get(config, "face.max_per_frame", 0))
         det_size = get(config, "face.det_size", [640, 640])
         self.face_det_size = (int(det_size[0]), int(det_size[1]))
+        # 성별/연령 누적 시 얼굴 품질 가중치의 선명도(라플라시안 분산) 기준값.
+        # 0(기본)이면 선명도 미적용(가중치=conf×area). >0이면 흐린 얼굴 표를 min(1, 선명도/기준)로 깎는다.
+        # 매직 상수를 피하려 기본은 꺼두고, 평가셋으로 최적 기준을 정한 뒤 켜는 것을 권장한다.
+        self.face_quality_sharp_ref = float(get(config, "face.quality_sharp_ref", 0.0))
 
         # gaze (2차): head pose 기반 화면 향함 판정. enable=false면 1차와 100% 동일.
         self.gaze_enable = bool(get(config, "gaze.enable", False))
@@ -141,10 +156,13 @@ class Settings:
         # LTS(Likely To See): 누적 응시 시간이 이 초 이상인 track을 응시자로 본다.
         self.gaze_lts_min_sec = float(get(config, "gaze.lts_min_sec", 1.0))
         # 평활(HOT 전용): 최근 window 동안 facing 우세면 응시로 본다.
-        self.gaze_smooth_window_sec = float(get(config, "gaze.smooth_window_sec", 0.3))
+        # window 는 pose 샘플 주기의 2배 이상이어야 비율 판정이 의미를 갖는다. config_validate 가 검사한다.
+        self.gaze_smooth_window_sec = float(get(config, "gaze.smooth_window_sec", 1.5))
         self.gaze_smooth_min_ratio = float(get(config, "gaze.smooth_min_ratio", 0.5))
         # 구간 분석(COLD, 사후)용 임계값. raw 저장 시점에 박지 않는다.
-        self.gaze_gap_tol_sec = float(get(config, "gaze.gap_tol_sec", 0.5))
+        # gap_tol_sec 은 pose 샘플 주기(enrich_interval_sec × face_run_every_n)보다 커야 한다.
+        # 짧으면 연속 응시가 샘플마다 끊겨 Attention 이 0 으로 주저앉는다. config_validate 가 검사한다.
+        self.gaze_gap_tol_sec = float(get(config, "gaze.gap_tol_sec", 1.0))
         self.gaze_grade_glance_sec = float(get(config, "gaze.grade_glance_sec", 0.2))
         self.gaze_grade_view_sec = float(get(config, "gaze.grade_view_sec", 1.0))
         self.gaze_grade_dwell_sec = float(get(config, "gaze.grade_dwell_sec", 2.0))
@@ -158,6 +176,9 @@ class Settings:
         self.rt_sqs_region = str(env_value("AWS_REGION", "AWS_DEFAULT_REGION", default=get(config, "realtime.sqs_region", "")))
         # summary(구간별: 카운트 + 성별/연령 + Attention) 전송 주기(기본 5초).
         self.rt_summary_interval = float(get(config, "realtime.summary_interval_sec", 5.0))
+        # 응시 "종료" 판정: 마지막으로 보인 지 이 초를 넘으면 끝난 것으로 보고 시청시간 분포에 1회 계상한다.
+        # (트래커가 track을 놓치는 시간대와 비슷하게 두는 게 안전. 너무 짧으면 잠깐 가림에 조기 종료.)
+        self.rt_exit_grace_sec = float(get(config, "realtime.exit_grace_sec", 2.0))
         self.rt_buffer_max = int(get(config, "realtime.buffer_max", 600))
         self.rt_spill_dir = Path(get(config, "realtime.spill_dir", "data/outbox"))
         self.rt_clock = str(get(config, "realtime.clock", "utc"))

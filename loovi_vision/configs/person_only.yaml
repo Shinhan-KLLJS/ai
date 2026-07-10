@@ -29,7 +29,8 @@ runtime:
   show_window: true
   save_frame_samples: false
   record_video: true
-  record_overlay: true
+  record_overlay: true     # 인식결과 오버레이 영상 저장 -> {run_id}.mp4
+  record_raw: true         # 원본(무보정) 영상도 함께 저장 -> {run_id}_raw.mp4
   threaded_writer: true    # 영상 인코딩을 별도 스레드로 분리해 메인 루프(화면 표시) 속도 향상
   perf_log: true           # 워커 단계별 처리시간(detect/track ms)+FPS를 2초마다 콘솔 출력(진단)
   video_dir: data/videos
@@ -53,7 +54,7 @@ tracker:
   low_thresh: 0.10            # 2차(저신뢰) 매칭 하한
   new_track_thresh: 0.25      # 새 track 생성 신뢰도 하한
   track_buffer: 30            # track 유지 버퍼 프레임 수
-  match_thresh: 0.80          # IoU 매칭 임계
+  match_thresh: 0.90          # IoU 매칭 임계 (VSCrowd 실측: 0.80→0.90이 IDF1 +0.018·Frag −21%, 0.95는 포화)
   proximity_thresh: 0.50      # 근접(위치) 매칭 임계
   appearance_thresh: 0.80     # 외형(ReID) 매칭 임계
   max_missing: 45             # 매칭 실패 track을 이 프레임 수 초과 사라지면 제거
@@ -78,10 +79,13 @@ gaze:
   low_conf_policy: exclude   # exclude | flag_only
   lts_min_sec: 1.0           # LTS: 누적 응시 이 초 이상이면 응시자(Likely To See). 기준선 1초
   # 평활 (HOT 스냅샷 전용, COLD raw 에는 미적용)
-  smooth_window_sec: 1.0     # 너무 짧으면 깜빡임. 샘플 여러 개가 들어오게 1초 권장
+  smooth_window_sec: 1.5     # 너무 짧으면 깜빡임. pose 샘플 주기의 2배 이상이어야
+                             # 윈도우에 샘플이 2~3개 들어와 smooth_min_ratio 가 의미를 갖는다(실행 시 경고).
   smooth_min_ratio: 0.5      # 윈도우 내 facing 비율 임계
   # 구간 분석 (COLD, 사후)
-  gap_tol_sec: 0.5
+  gap_tol_sec: 1.0            # 이 이내 끊김은 같은 세션으로 이어붙임.
+                              # 불변식: gap_tol_sec > enrich_interval_sec × face.run_every_n_frames.
+                              # 이보다 짧으면 연속 응시가 샘플마다 끊겨 Attention 이 과소 집계된다(실행 시 경고).
   grade_glance_sec: 0.2
   grade_view_sec: 1.0
   grade_dwell_sec: 2.0        # 이 이상 누적 응시 = Attention(2초+ 응시자). 기준선 2초

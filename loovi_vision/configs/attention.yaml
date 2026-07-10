@@ -22,11 +22,14 @@ runtime:
   enable_cuda: true
   threaded_capture: true   # 웹캠 캡처를 별도 스레드로 분리해 라이브 화면 버벅임 제거(영상 파일 입력은 미적용)
   process_every_n: 2
+  enrich_interval_sec: 0.3 # 트래킹 분리: detect+track은 매 프레임, 무거운 얼굴/포즈 보강만 이 간격(초)으로만.
+                           # 트래커 갱신 빈도↑ → OTS/카운트 신뢰↑. 낮추면 attention/성별 밀도↑, 높이면 트래킹↑. 0=매 프레임(기존)
   batch_sec: 1
   show_window: true
   save_frame_samples: false
   record_video: true
-  record_overlay: true
+  record_overlay: true     # 인식결과 오버레이 영상 저장 -> {run_id}.mp4
+  record_raw: true         # 원본(무보정) 영상도 함께 저장 -> {run_id}_raw.mp4
   threaded_writer: true    # 영상 인코딩을 별도 스레드로 분리해 메인 루프(화면 표시) 속도 향상
   perf_log: true           # 워커 단계별 처리시간(detect/track/face/gaze ms)+FPS를 2초마다 콘솔 출력(진단)
   video_dir: data/videos
@@ -50,11 +53,14 @@ tracker:
   low_thresh: 0.10            # 2차(저신뢰) 매칭 하한
   new_track_thresh: 0.25      # 새 track 생성 신뢰도 하한
   track_buffer: 30            # track 유지 버퍼 프레임 수
-  match_thresh: 0.80          # IoU 매칭 임계
+  match_thresh: 0.90          # IoU 매칭 임계 (VSCrowd 실측: 0.80→0.90이 IDF1 +0.018·Frag −21%, 0.95는 포화)
   proximity_thresh: 0.50      # 근접(위치) 매칭 임계
   appearance_thresh: 0.80     # 외형(ReID) 매칭 임계
   max_missing: 45             # 매칭 실패 track을 이 프레임 수 초과 사라지면 제거
   custom_match_max_dist: 260  # custom fallback tracker의 중심점 매칭 최대 거리(px)
+  with_reid: false            # body Re-ID(외형 임베딩)로 끊긴 track 재결합 시도(중복 통행 방지). BoT-SORT 전용.
+                              # true면 appearance_thresh(위)가 실제 작동. 주의: detection마다 추론 추가→느려짐(특히 CPU). 실험용.
+  reid_model: models/yolo26n-reid.onnx   # with_reid=true 시 쓸 ReID onnx. 없으면 첫 실행 시 자동 다운로드.
 
 face:
   enable: true               # false 로 바꾸면 얼굴 분석 없이 person-only 동작 (person_only.yaml 과 동일)
@@ -63,6 +69,8 @@ face:
   min_crop_size: 48          # 너무 작은 사람 crop 은 얼굴 검출 건너뜀
   det_size: [640, 640]       # insightface 검출 입력 크기. [320,320] 로 낮추면 얼굴 검출이 크게 빨라짐(먼 얼굴은 놓칠 수 있음)
   max_per_frame: 0           # 한 프레임에 얼굴 분석할 최대 인원(0=무제한). 사람 많을 때 3~4로 제한하면 표시 FPS 방어
+  quality_sharp_ref: 0       # 성별/연령 가중 누적의 선명도 기준(라플라시안 분산). 0=미적용(가중치=conf×area).
+                             # >0이면 흐린 얼굴 표를 깎는다. 평가셋으로 최적값(예: 80~150) 정한 뒤 켜는 것을 권장.
 
 gaze:
   enable: true               # false 면 head pose(gaze) 없이 얼굴(성별/연령)만 분석
@@ -76,10 +84,13 @@ gaze:
   low_conf_policy: exclude   # exclude | flag_only
   lts_min_sec: 1.0           # LTS: 누적 응시 이 초 이상이면 응시자(Likely To See). 기준선 1초
   # 평활 (HOT 스냅샷 전용, COLD raw 에는 미적용)
-  smooth_window_sec: 1.0     # 너무 짧으면 깜빡임. 샘플 여러 개가 들어오게 1초 권장
+  smooth_window_sec: 1.5     # 너무 짧으면 깜빡임. pose 샘플 주기(0.6s)의 2배 이상이어야
+                             # 윈도우에 샘플이 2~3개 들어와 smooth_min_ratio 가 의미를 갖는다(실행 시 경고).
   smooth_min_ratio: 0.5      # 윈도우 내 facing 비율 임계
   # 구간 분석 (COLD, 사후)
-  gap_tol_sec: 0.5
+  gap_tol_sec: 1.0            # 이 이내 끊김은 같은 세션으로 이어붙임.
+                              # 불변식: gap_tol_sec > enrich_interval_sec × face.run_every_n_frames (=0.3×2=0.6s).
+                              # 이보다 짧으면 연속 응시가 샘플마다 끊겨 Attention 이 과소 집계된다(실행 시 경고).
   grade_glance_sec: 0.2
   grade_view_sec: 1.0
   grade_dwell_sec: 2.0        # 이 이상 누적 응시 = Attention(2초+ 응시자). 기준선 2초
@@ -91,6 +102,7 @@ realtime:
   sqs_queue_url: ""          # 빈 값이면 환경변수 LOOVI_SQS_QUEUE_URL 사용
   sqs_region: ""             # AWS 리전(예: ap-northeast-2). 빈 값이면 AWS_REGION/AWS_DEFAULT_REGION 환경변수 사용
   summary_interval_sec: 5    # summary(구간별: 카운트 + 성별/연령 + Attention) 전송 주기(초)
+  exit_grace_sec: 2          # 응시 종료 판정: 마지막 관측 후 이 초 넘게 안 보이면 "끝남"→시청분포에 1회 계상(중복 방지)
   buffer_max: 600            # 미전송 스냅샷 상한 (약 10분)
   spill_dir: data/outbox     # 버퍼 초과/종료 시 디스크 스필
   clock: utc
