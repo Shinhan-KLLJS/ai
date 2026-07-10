@@ -42,7 +42,7 @@ class GazeRuntime:
         if now_sec - self.last_summary < self.settings.rt_summary_interval:
             return
         self.summary_seq += 1
-        self._enqueue(self.summary.build(self.summary_seq, now_sec - self.last_summary))
+        self._enqueue(self.summary.build(self.summary_seq, now_sec - self.last_summary, now_sec))
         self.last_summary = now_sec
 
     def _enqueue(self, message):
@@ -87,7 +87,9 @@ class GazeRuntime:
         # (측정 구간 종료 시점에 진행 중이던 응시도 누락 없이 반영).
         if self.sender and self.last_now > self.last_summary:
             self.summary_seq += 1
-            self._enqueue(self.summary.build(self.summary_seq, self.last_now - self.last_summary))
+            # final=True: 아직 보고 있던 응시자까지 모두 종료 처리해 분포에 누락 없이 반영한다.
+            self._enqueue(self.summary.build(self.summary_seq, self.last_now - self.last_summary,
+                                             self.last_now, final=True))
         summary = analyze_gaze_sessions(self.poses_path, self.settings)
         summary["poses_path"] = path_text(self.poses_path)
         summary["headpose_avg_ms"] = self.gaze.avg_infer_ms()
