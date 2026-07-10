@@ -4,6 +4,24 @@ from typing import List, Optional, Tuple
 import numpy as np
 
 
+def weighted_median(samples):
+    # (값, 가중치) 목록의 가중 중앙값을 구한다.
+    # 값 기준 오름차순으로 훑으며 가중치를 누적해, 전체 가중치의 절반에 처음 도달하는 값을 반환한다.
+    # 가중치가 모두 같으면 일반 중앙값과 동일하게 동작한다.
+    if not samples:
+        return None
+    ordered = sorted(samples)                     # (나이, 가중치)를 나이 오름차순 정렬
+    total = sum(w for _, w in ordered)
+    if total <= 0:
+        return ordered[len(ordered) // 2][0]      # 가중치 합이 0이면 위치 중앙값으로 폴백
+    half, acc = total / 2.0, 0.0
+    for value, w in ordered:
+        acc += w
+        if acc >= half:
+            return value
+    return ordered[-1][0]
+
+
 @dataclass
 class TrackState:
     # 사람 한 명(track_id)당 통행/주목 기록을 누적하는 기록장.
@@ -14,10 +32,10 @@ class TrackState:
     best_face_bbox: Optional[Tuple] = None     # best_face 내부 얼굴 bbox (x, y, w, h)
     best_face_kps: Optional[np.ndarray] = None # best_face 내부 5점 landmark
     best_face_score: float = 0.0               # best 선정 기준 = conf x 얼굴 면적
-    gender: Optional[int] = None               # 1=male, 0=female, None=미상 (누적 다수결)
-    age: Optional[int] = None                  # 정수 나이, None=미상 (누적 중앙값)
-    gender_votes: List[int] = field(default_factory=lambda: [0, 0])  # [female, male] 누적표
-    age_samples: List[int] = field(default_factory=list)             # 나이 샘플 누적
+    gender: Optional[int] = None               # 1=male, 0=female, None=미상 (누적 가중 다수결)
+    age: Optional[int] = None                  # 정수 나이, None=미상 (누적 가중 중앙값)
+    gender_votes: List[float] = field(default_factory=lambda: [0.0, 0.0])  # [female, male] 누적 가중표
+    age_samples: List[Tuple[int, float]] = field(default_factory=list)     # (나이, 가중치) 샘플 누적
     # gaze(2차): pose 원시 기록(COLD 미러)과 평활용 링버퍼, 요약 카운터.
     pose_timeline: List[dict] = field(default_factory=list)          # 매 검출 프레임 raw (날것)
     facing_smooth_state: List[tuple] = field(default_factory=list)   # [(timestamp_sec, facing)] 최근 window
@@ -26,10 +44,13 @@ class TrackState:
     last_pose_ts: Optional[float] = None                             # 직전 pose timestamp (delta 계산용)
     first_seen: Optional[int] = None           # 최초 관측 frame_id
     last_seen: Optional[int] = None            # 최종 관측 frame_id
+    last_seen_sec: Optional[float] = None      # 최종 관측 시각(elapsed 초) — "종료(안 보인 지 N초)" 판정용
 
     @property
-    def attended(self) -> bool:
-        # 얼굴이 한 번이라도 잡혔으면 "주목"으로 분류한다.
+    def face_visible(self) -> bool:
+        # 얼굴이 한 번이라도 잡혔으면 "속성 추정 가능(face_visible)"으로 본다.
+        # 주의: 이는 주목(Attention)이 아니라 성별/연령 추정 대상 여부일 뿐이다.
+        # 실제 주목 지표는 facing_sec 기반 LTS/Attention(2초+)에서 별도로 계산한다.
         return self.frames_face_visible > 0
 
     def add_pose(self, record, smooth_window_sec, low_conf_policy="exclude", max_gap_sec=1.0):
@@ -60,21 +81,20 @@ class TrackState:
         while self.facing_smooth_state and self.facing_smooth_state[0][0] < cutoff:
             self.facing_smooth_state.pop(0)
 
-    def add_genderage(self, gender, age):
+    def add_genderage(self, gender, age, weight=1.0):
         # 성별/나이는 프레임마다 조금씩 흔들리므로 단발값을 쓰지 않고 누적해 수렴시킨다.
-        #   성별 = 지금까지 표의 다수결(male/female 표를 세어 많은 쪽).
-        #   나이 = 지금까지 샘플들의 중앙값(median, 튀는 값에 강함).
+        # 이때 샘플마다 품질 가중치(weight)를 줘, 작고 흐릿한 얼굴이 크고 선명한 얼굴을 이기지 못하게 한다.
+        #   성별 = 가중 다수결(품질 높은 얼굴의 표가 더 무겁다).
+        #   나이 = 가중 중앙값(가중치 누적이 절반에 도달하는 지점의 나이, 튀는 값에 강함).
+        w = max(0.0, float(weight))
+        if w <= 0.0:
+            w = 1e-6                           # 0 가중이라도 표는 남기되 영향은 최소화(전부 0 방지)
         if gender in (0, 1):
-            self.gender_votes[gender] += 1     # gender_votes = [female표, male표]
+            self.gender_votes[gender] += w     # gender_votes = [female 가중표, male 가중표]
             self.gender = 0 if self.gender_votes[0] > self.gender_votes[1] else 1
         if age is not None:
-            self.age_samples.append(int(age))
-            ordered = sorted(self.age_samples)
-            mid = len(ordered) // 2
-            if len(ordered) % 2:               # 홀수 개 → 가운데 값
-                self.age = ordered[mid]
-            else:                              # 짝수 개 → 가운데 두 값의 평균
-                self.age = (ordered[mid - 1] + ordered[mid]) // 2
+            self.age_samples.append((int(age), w))
+            self.age = weighted_median(self.age_samples)
 
 
 class TrackStateRegistry:
@@ -82,14 +102,17 @@ class TrackStateRegistry:
     def __init__(self):
         self.states = {}
 
-    def observe(self, track_id, frame_id):
+    def observe(self, track_id, frame_id, timestamp_sec=None):
         # 모든 사람은 통행으로 무조건 집계한다 (분모): frames_seen 누적.
+        # timestamp_sec(있으면) 을 최종 관측 시각으로 기록해, summary 가 "종료" 여부를 시간으로 판정한다.
         state = self.states.get(track_id)
         if state is None:
             state = TrackState(track_id=track_id, first_seen=frame_id)
             self.states[track_id] = state
         state.frames_seen += 1
         state.last_seen = frame_id
+        if timestamp_sec is not None:
+            state.last_seen_sec = float(timestamp_sec)
         return state
 
     def record_face(self, track_id, frame_id, person_crop, face):

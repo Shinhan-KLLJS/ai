@@ -1,5 +1,6 @@
 from loovi_vision.detectors.face import FaceAnalyzer
 from loovi_vision.enrich.track_state import TrackStateRegistry
+from loovi_vision.enrich.face_quality import quality_weight
 
 
 class FaceEnricher:
@@ -50,7 +51,7 @@ class FaceEnricher:
             if track_id is None:
                 continue
             seen.add(track_id)
-            state = self.registry.observe(track_id, frame_id)  # frames_seen += 1 (항상)
+            state = self.registry.observe(track_id, frame_id, timestamp_sec)  # frames_seen += 1 (항상)
             if not self._should_run(state):
                 continue
             if allowed is not None and det_idx not in allowed:
@@ -67,35 +68,38 @@ class FaceEnricher:
             self.registry.record_face(track_id, frame_id, crop, best)
             faced.add(track_id)
             state = self.registry.states[track_id]
-            # genderage는 검출된 얼굴로 매번 판정해 누적 -> 다수결/중앙값으로 수렴(출렁임 제거).
-            gender, age = self.analyzer.analyze(crop, best["bbox"], best["kps"])
-            state.add_genderage(gender, age)
-            self.face_labels[track_id] = format_label(state.gender, state.age)
             fx, fy, fw, fh = best["bbox"]
+            face_region = crop[fy:fy + fh, fx:fx + fw]   # 품질 계산·pose 재사용 공용 crop
+            # genderage는 검출된 얼굴로 매번 판정하되, 품질 가중치를 줘 누적한다(저품질 표 억제).
+            gender, age = self.analyzer.analyze(crop, best["bbox"], best["kps"])
+            weight = quality_weight(best["conf"], best["area"], face_region,
+                                    self.settings.face_quality_sharp_ref)
+            state.add_genderage(gender, age, weight)
+            self.face_labels[track_id] = format_label(state.gender, state.age)
             self.last_face_boxes[track_id] = (fx + off_x, fy + off_y, fx + fw + off_x, fy + fh + off_y)
             if self.on_face is not None:
                 # 1차에서 검출한 얼굴 crop을 2차 head pose에 그대로 재사용.
-                face_crop = crop[fy:fy + fh, fx:fx + fw]
                 face_bbox_frame = (fx + off_x, fy + off_y, fw, fh)
-                self.on_face(track_id, face_crop, face_bbox_frame, det["bbox"], frame_id, timestamp_sec)
+                self.on_face(track_id, face_region, face_bbox_frame, det["bbox"], frame_id, timestamp_sec)
         return seen, faced
 
     def attended_ids(self):
         # 얼굴이 한 번이라도 잡힌 track 집합 (overlay 박스 색 결정용).
-        return {s.track_id for s in self.registry.all() if s.attended}
+        # (메서드명은 overlay 계층 호환을 위해 유지 — 의미는 face_visible 집합이다.)
+        return {s.track_id for s in self.registry.all() if s.face_visible}
 
     def live_counts(self):
-        # overlay HUD용 실시간 누적: 주목 인원, 남/녀 카운트.
-        attended = males = females = 0
+        # overlay HUD용 실시간 누적: 얼굴 인식 인원, 남/녀 카운트.
+        face_visible = males = females = 0
         for state in self.registry.all():
-            if not state.attended:
+            if not state.face_visible:
                 continue
-            attended += 1
+            face_visible += 1
             if state.gender == 1:
                 males += 1
             elif state.gender == 0:
                 females += 1
-        return {"attended": attended, "males": males, "females": females}
+        return {"attended": face_visible, "males": males, "females": females}
 
     def finalize(self):
         # 안전망: best_face는 있는데 누적 판정이 한 번도 안 된 track만 채운다.
@@ -105,7 +109,7 @@ class FaceEnricher:
                 gender, age = self.analyzer.analyze(
                     state.best_face, state.best_face_bbox, state.best_face_kps
                 )
-                state.add_genderage(gender, age)
+                state.add_genderage(gender, age, 1.0)   # 단발 폴백 → 가중치 중립(1.0)
         return self.registry
 
 

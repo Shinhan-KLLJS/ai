@@ -1,5 +1,7 @@
-# 주목자의 성별·연령 분포와 세션 전체 요약(per_track 포함)을 만든다.
+# 얼굴 인식자(face_visible)의 성별·연령 분포와 세션 전체 요약(per_track 포함)을 만든다.
 # (realtime/summary.py의 5초 구간 스냅샷과 구분하기 위해 session_summary로 명명.)
+# 주의: 여기서 세는 건 "얼굴이 보인 사람"이지 "주목(2초+ 응시)"이 아니다.
+# 실제 Attention 지표는 analysis/gaze_sessions.py(attention_count)가 별도로 낸다.
 
 AGE_BUCKETS = ["under_10", "10s", "20s", "30s", "40s", "50s", "60_plus"]
 
@@ -55,22 +57,22 @@ def age_bucket(age):
 
 def gender_label(state):
     # 얼굴 없는 사람에게는 성별을 추정하지 않는다 (1차 범위 밖) -> None.
-    if not state.attended or state.gender is None:
+    if not state.face_visible or state.gender is None:
         return None
     return "male" if state.gender == 1 else "female"
 
 
 def build_summary(registry, min_hits=1):
-    # 통행/주목 분리 집계: 모든 track은 분모, 얼굴 잡힌 track만 분자.
+    # 통행/얼굴인식 분리 집계: 모든 track은 분모, 얼굴 잡힌 track만 분자.
     # 노이즈(짧게 스친) track 제외를 위해 frames_seen >= min_hits 만 집계한다.
     confirmed = [s for s in registry.all() if s.frames_seen >= min_hits]
     total_unique = len(confirmed)
-    attended = [s for s in confirmed if s.attended]
-    attended_count = len(attended)
+    face_visible = [s for s in confirmed if s.face_visible]
+    face_visible_count = len(face_visible)
 
     gender_dist = {"male": 0, "female": 0}
     age_dist = {bucket: 0 for bucket in AGE_BUCKETS}
-    for state in attended:
+    for state in face_visible:
         label = gender_label(state)
         if label is not None:
             gender_dist[label] += 1
@@ -86,15 +88,15 @@ def build_summary(registry, min_hits=1):
             "frames_seen": seen,
             "frames_face_visible": state.frames_face_visible,
             "face_ratio": round(state.frames_face_visible / seen, 4) if seen else 0.0,
-            "attended": state.attended,
-            "gender": gender_label(state),                  # 미상이면 null
-            "age": state.age if state.attended else None,   # 미상이면 null
+            "face_visible": state.face_visible,
+            "gender": gender_label(state),                      # 미상이면 null
+            "age": state.age if state.face_visible else None,   # 미상이면 null
         })
 
     return {
         "total_unique": total_unique,
-        "attended_count": attended_count,
-        "attention_rate": round(attended_count / total_unique, 4) if total_unique else 0.0,
+        "face_visible_count": face_visible_count,
+        "face_visible_rate": round(face_visible_count / total_unique, 4) if total_unique else 0.0,
         "gender_dist": gender_dist,
         "age_dist": age_dist,
         "per_track": per_track,

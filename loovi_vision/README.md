@@ -206,7 +206,7 @@ face:
 
 ```text
 JSONL(1초)  : persons_with_face, face_visible_ratio 추가
-session json: total_unique, attended_count, attention_rate,
+session json: total_unique, face_visible_count, face_visible_rate,
               gender_dist, age_dist, per_track
 ```
 
