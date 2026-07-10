@@ -1,4 +1,9 @@
+import os
 from types import SimpleNamespace
+
+# ultralytics 가 ReID 모델(ONNX)을 로드할 때 requirement 자동설치로 CPU용 onnxruntime 를 깔아
+# 기존 onnxruntime-gpu 와 충돌(→ GPU 비활성)하는 것을 막는다. ultralytics import 이전에 설정해야 한다.
+os.environ.setdefault("YOLO_AUTOINSTALL", "false")
 
 from .base import TrackerDetections, TrackStore
 
@@ -18,8 +23,10 @@ class UltralyticsTracker(TrackStore):
             gmc_method=settings.tracker_gmc_method,
             proximity_thresh=settings.track_proximity_thresh,
             appearance_thresh=settings.track_appearance_thresh,
-            with_reid=False,
-            model="auto",
+            # body Re-ID: 켜면 외형 임베딩으로 끊긴 track 재결합을 시도(중복 통행 방지).
+            # 우리는 커스텀 ONNX detector라 "auto"(YOLO 내부 특징)를 못 쓰고 전용 ReID 모델 파일이 필요하다.
+            with_reid=settings.track_with_reid,
+            model=(settings.track_reid_model if settings.track_with_reid else "auto"),
         )
         if settings.tracker_backend == "bytetrack":
             from ultralytics.trackers.byte_tracker import BYTETracker
@@ -31,7 +38,8 @@ class UltralyticsTracker(TrackStore):
 
             self.backend_name = "BoT-SORT"
             self.backend = BOTSORT(args)
-        print(f"  OK Tracker [{self.backend_name}]")
+        reid = f" +ReID({settings.track_reid_model})" if settings.track_with_reid else ""
+        print(f"  OK Tracker [{self.backend_name}]{reid}")
 
     def update(self, detections, frame=None):
         # tracker 출력 row에서 track_id와 원본 detection index를 다시 연결한다.
