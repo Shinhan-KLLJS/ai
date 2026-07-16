@@ -108,4 +108,3 @@ realtime:
   buffer_max: 600            # 미전송 스냅샷 상한 (약 10분)
   spill_dir: data/outbox     # 버퍼 초과/종료 시 디스크 스필
   clock: utc
-
