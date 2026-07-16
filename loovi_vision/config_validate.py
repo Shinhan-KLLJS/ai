@@ -55,17 +55,30 @@ def _check_smooth_window(settings, period):
             f"smooth_window_sec 를 {round(need, 2)}s 이상으로 올려라.")
 
 
+def _check_tracker_retention(settings):
+    # BoT-SORT가 lost track을 재활성화해도 adapter가 counted 상태를 먼저 지우면 같은 ID를 다시 센다.
+    # 따라서 adapter 보관 프레임은 내부 track_buffer보다 짧으면 안 된다.
+    if settings.tracker_backend not in ("botsort", "bytetrack"):
+        return None
+    if settings.track_max_missing >= settings.track_buffer:
+        return None
+    return (f"tracker.max_missing({settings.track_max_missing}) < track_buffer({settings.track_buffer}). "
+            f"재활성화된 track_id의 counted 상태가 먼저 사라져 중복 집계될 수 있다. "
+            f"max_missing을 {settings.track_buffer} 이상으로 올려라.")
+
+
 # 등록된 검사 목록. 새 불변식은 여기에 함수만 추가하면 된다.
-_CHECKS = (_check_gap_tol, _check_smooth_window)
+_GAZE_CHECKS = (_check_gap_tol, _check_smooth_window)
 
 
 def check_settings(settings):
     """경고 문자열 리스트를 반환한다(빈 리스트면 정상). 실행을 막지는 않는다."""
+    warnings = [_check_tracker_retention(settings)]
     # face/gaze 가 꺼져 있으면 pose 샘플 자체가 없어 검증할 관계도 없다.
-    if not (settings.gaze_enable and settings.face_enable):
-        return []
-    period = pose_sample_period(settings)
-    return [warning for warning in (check(settings, period) for check in _CHECKS) if warning]
+    if settings.gaze_enable and settings.face_enable:
+        period = pose_sample_period(settings)
+        warnings.extend(check(settings, period) for check in _GAZE_CHECKS)
+    return [warning for warning in warnings if warning]
 
 
 def report_settings(settings, label="", printer=print):

@@ -1,8 +1,8 @@
-experiment:
-  name: attention
+﻿experiment:
+  name: attention_reid_video
   board_id: board_gangnam_01
   output_dir: data/jsonl
-  output_suffix: attention
+  output_suffix: attention_reid_video
 
 models:
   person_onnx: models/yolo11l.onnx
@@ -16,7 +16,7 @@ camera:
   fourcc: MJPG    # 픽셀 포맷 강제. 내장 웹캠은 무압축(YUY2)이면 1080p가 ~5fps로 떨어져 MJPG 권장.
                   # Iriun 등 가상 카메라에서 프레임 문제가 생기면 ""(빈 값)으로 두어 강제 해제.
   fps: 30         # 프레임레이트 요청(0이면 강제 안 함, 카메라 기본값 사용)
-  video_path: ""  # 값이 있으면 웹캠 대신 사전 촬영 영상 파일 입력(통제된 데모). 예: data/clips/demo.mp4
+  video_path: "data/videos/260715_121008_attention_raw.mp4"
 
 runtime:
   enable_cuda: true
@@ -25,11 +25,11 @@ runtime:
   enrich_interval_sec: 0.3 # 트래킹 분리: detect+track은 매 프레임, 무거운 얼굴/포즈 보강만 이 간격(초)으로만.
                            # 트래커 갱신 빈도↑ → OTS/카운트 신뢰↑. 낮추면 attention/성별 밀도↑, 높이면 트래킹↑. 0=매 프레임(기존)
   batch_sec: 1
-  show_window: true
+  show_window: false
   save_frame_samples: false
   record_video: true
   record_overlay: true     # 인식결과 오버레이 영상 저장 -> {run_id}.mp4
-  record_raw: true         # 원본(무보정) 영상도 함께 저장 -> {run_id}_raw.mp4
+  record_raw: false
   threaded_writer: true    # 영상 인코딩을 별도 스레드로 분리해 메인 루프(화면 표시) 속도 향상
   perf_log: true           # 워커 단계별 처리시간(detect/track/face/gaze ms)+FPS를 2초마다 콘솔 출력(진단)
   video_dir: data/videos
@@ -108,3 +108,4 @@ realtime:
   buffer_max: 600            # 미전송 스냅샷 상한 (약 10분)
   spill_dir: data/outbox     # 버퍼 초과/종료 시 디스크 스필
   clock: utc
+

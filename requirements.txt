@@ -9,6 +9,8 @@ PyYAML==6.0.3
 # --- person detection / tracking ---
 # ultralytics 가 BoT-SORT / ByteTrack tracker 와 torch 를 함께 끌어온다.
 ultralytics==8.4.82
+# BoT-SORT의 선형 할당기. 없으면 tracker 초기화가 실패해 custom tracker로 폴백한다.
+lap==0.5.13
 
 # --- ONNX 추론 (person YOLO + face) ---
 onnx==1.22.0
